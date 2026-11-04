@@ -52,7 +52,7 @@ Item {
 
     PlasmaCore.ToolTipArea {
         anchors.fill: parent
-        active: true
+        active: !compact.plasmoidItem.expanded
         mainText: "OpenCode Go"
         subText: {
             var m = compact.monthly;
@@ -61,5 +61,17 @@ Item {
             return Math.round(m.percent) + " % du quota mensuel · reste "
                  + compact.plasmoidItem.fmtDuration(m.reset_in_seconds);
         }
+    }
+
+    // Plasma n'ouvre pas le popup tout seul : c'est à l'applet de le faire.
+    MouseArea {
+        id: clickArea
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton
+
+        property bool wasExpanded: false
+
+        onPressed: wasExpanded = compact.plasmoidItem.expanded
+        onClicked: compact.plasmoidItem.expanded = !wasExpanded
     }
 }
