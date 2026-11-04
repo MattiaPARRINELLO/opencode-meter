@@ -15,6 +15,16 @@ QQC.Control {
                                   ? plasmoidItem.usage.monthly_series : []
     readonly property var tokens: plasmoidItem.usage && plasmoidItem.usage.tokens
                                   ? plasmoidItem.usage.tokens : []
+    readonly property var stats: plasmoidItem.usage && plasmoidItem.usage.stats
+                                 ? plasmoidItem.usage.stats : ({})
+
+    property string breakdownMode: "models"
+
+    readonly property var breakdown: {
+        if (!stats.models)
+            return [];
+        return (breakdownMode === "projects" ? stats.projects : stats.models).slice(0, 3);
+    }
     // Au moins 3 jours de relevés : avant ça, une courbe n'a rien à dire.
     readonly property bool hasSeries: {
         var days = 0;
@@ -187,28 +197,21 @@ QQC.Control {
         }
 
         // ---------- sparkline 14 jours ----------
+        QQC.Label {
+            Layout.fillWidth: true
+            Layout.topMargin: Kirigami.Units.smallSpacing
+            visible: !full.hasSeries
+            text: i18n("Historique : se construit (3 jours de relevés)")
+            font.pointSize: Kirigami.Theme.smallFont.pointSize
+            color: Kirigami.Theme.disabledTextColor
+            horizontalAlignment: Text.AlignHCenter
+        }
+
         Item {
             Layout.fillWidth: true
             Layout.topMargin: Kirigami.Units.smallSpacing
-            implicitHeight: full.hasSeries
-                            ? Kirigami.Units.gridUnit * 2.4
-                            : Kirigami.Units.gridUnit * 1.4
-
-            Rectangle {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                height: 1
-                color: full.trackColor
-            }
-
-            QQC.Label {
-                anchors.centerIn: parent
-                visible: !full.hasSeries
-                text: i18n("Historique en construction")
-                font.pointSize: Kirigami.Theme.smallFont.pointSize
-                color: Kirigami.Theme.disabledTextColor
-            }
+            visible: full.hasSeries
+            implicitHeight: Kirigami.Units.gridUnit * 2.4
 
             Row {
                 id: spark
@@ -241,12 +244,97 @@ QQC.Control {
         }
         QQC.Label {
             Layout.fillWidth: true
+            visible: full.hasSeries
             text: i18n("Quota mensuel, 14 derniers jours")
             font.pointSize: Kirigami.Theme.smallFont.pointSize
             color: Kirigami.Theme.disabledTextColor
         }
 
+
+        // ---------- où part le quota ----------
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: Kirigami.Units.smallSpacing
+
+            QQC.Label {
+                text: i18n("Où part le quota · 30 j")
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                color: Kirigami.Theme.disabledTextColor
+                Layout.fillWidth: true
+            }
+
+            QQC.Button {
+                text: i18n("Modèles")
+                flat: true
+                checkable: true
+                checked: full.breakdownMode === "models"
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                topPadding: 0
+                bottomPadding: 0
+                leftPadding: Kirigami.Units.smallSpacing
+                rightPadding: Kirigami.Units.smallSpacing
+                onClicked: full.breakdownMode = "models"
+            }
+            QQC.Button {
+                text: i18n("Projets")
+                flat: true
+                checkable: true
+                checked: full.breakdownMode === "projects"
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                topPadding: 0
+                bottomPadding: 0
+                leftPadding: Kirigami.Units.smallSpacing
+                rightPadding: Kirigami.Units.smallSpacing
+                onClicked: full.breakdownMode = "projects"
+            }
+        }
+
+        Repeater {
+            model: full.breakdown
+            delegate: RowLayout {
+                required property var modelData
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+
+                QQC.Label {
+                    text: modelData.name
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    color: Kirigami.Theme.textColor
+                    elide: Text.ElideRight
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 7
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 4
+                    radius: 2
+                    color: full.trackColor
+                    Rectangle {
+                        width: parent.width * Math.min(modelData.share, 1)
+                        height: parent.height
+                        radius: 2
+                        color: Qt.rgba(Kirigami.Theme.textColor.r,
+                                       Kirigami.Theme.textColor.g,
+                                       Kirigami.Theme.textColor.b, 0.55)
+                    }
+                }
+                QQC.Label {
+                    text: Math.round(modelData.share * 100) + "%"
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    color: Kirigami.Theme.disabledTextColor
+                    horizontalAlignment: Text.AlignRight
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 2
+                }
+            }
+        }
+
         // ---------- autres fenêtres ----------
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.topMargin: Kirigami.Units.smallSpacing
+            height: 1
+            color: full.trackColor
+        }
+
         Repeater {
             model: ["rolling", "weekly"]
             delegate: RowLayout {
@@ -292,14 +380,12 @@ QQC.Control {
             Layout.topMargin: Kirigami.Units.smallSpacing
 
             QQC.Label {
-                text: plasmoidItem.lastError
-                      ? plasmoidItem.lastError
-                      : (full.tokens.length > 0
-                         ? i18n("%1 M tokens aujourd'hui", (full.tokens[full.tokens.length - 1].tokens / 1e6).toFixed(1))
-                         : "")
+                text: full.footerText()
                 font.pointSize: Kirigami.Theme.smallFont.pointSize
                 color: plasmoidItem.lastError ? Kirigami.Theme.negativeTextColor
-                                              : Kirigami.Theme.disabledTextColor
+                      : (full.stats.habit_ratio !== null && full.stats.habit_ratio > 1.3
+                         ? Kirigami.Theme.neutralTextColor
+                         : Kirigami.Theme.disabledTextColor)
                 Layout.fillWidth: true
                 elide: Text.ElideRight
             }
@@ -321,14 +407,29 @@ QQC.Control {
         return i18n("maj %1", Qt.formatTime(d, "HH:mm"));
     }
 
+    function footerText() {
+        if (plasmoidItem.lastError)
+            return plasmoidItem.lastError;
+        var s = full.stats;
+        if (!s.today_tokens && !s.baseline_tokens)
+            return "";
+        var text = i18n("%1 M tokens aujourd'hui", ((s.today_tokens || 0) / 1e6).toFixed(1));
+        if (s.habit_ratio !== null && s.habit_ratio !== undefined)
+            text += " · " + s.habit_ratio.toFixed(1).replace(".", ",") + "× ta moyenne";
+        return text;
+    }
+
     function projectionText() {
         var m = full.monthly;
         if (!m)
             return plasmoidItem.lastError || "";
         if (m.percent >= 100)
             return i18n("Quota épuisé — reset dans %1", plasmoidItem.fmtDuration(m.reset_in_seconds));
-        if (m.eta_days !== null && m.eta_days < m.remaining_days)
-            return i18n("À ce rythme : quota épuisé dans %1 j, avant le reset.", Math.floor(m.eta_days));
+        if (m.eta_days !== null && m.eta_days < m.remaining_days - 1)
+            return i18n("Limite atteinte dans %1 j, avant le reset (dans %2 j).",
+                        Math.floor(m.eta_days), Math.floor(m.remaining_days));
+        if (m.projected_percent >= 100)
+            return i18n("Tu frôles la limite : %1 % au reset.", Math.round(m.projected_percent));
         return i18n("À ce rythme : %1 % au reset.", Math.round(m.projected_percent));
     }
 }

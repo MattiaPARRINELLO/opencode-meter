@@ -270,33 +270,128 @@ def daily_series(db: sqlite3.Connection, name: str, days: int = 14) -> list[dict
 # --------------------------------------------------------------------------
 
 
-def local_token_series(days: int = 14) -> list[dict]:
+def _project_label(directory: str) -> str:
+    """Nom lisible : les worktrees T3 sont ramenés au projet d'origine."""
+    if not directory:
+        return "?"
+    parts = Path(directory).parts
+    if ".t3" in parts:
+        i = parts.index(".t3")
+        if i + 2 < len(parts) and parts[i + 1] == "worktrees":
+            return parts[i + 2]
+    if Path(directory) == HOME:
+        return "home"
+    return Path(directory).name or directory
+
+
+def local_stats(days: int = 14, month_days: int = 30) -> dict:
+    """Tokens par jour, modèles, projets et heures de consommation."""
+    result = {
+        "tokens": [],
+        "today_tokens": 0,
+        "baseline_tokens": None,
+        "habit_ratio": None,
+        "models": [],
+        "projects": [],
+        "hourly": [0] * 24,
+    }
     if not OPENCODE_DB.exists():
-        return []
-    since = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000)
+        return result
+
+    now = datetime.now(timezone.utc)
+    since_ms = int((now - timedelta(days=days)).timestamp() * 1000)
+    month_ms = int((now - timedelta(days=month_days)).timestamp() * 1000)
+    tokens_expr = (
+        "COALESCE(json_extract(data,'$.tokens.input'),0)"
+        " + COALESCE(json_extract(data,'$.tokens.output'),0)"
+        " + COALESCE(json_extract(data,'$.tokens.reasoning'),0)"
+    )
+
     try:
-        db = sqlite3.connect(f"file:{OPENCODE_DB}?mode=ro", uri=True, timeout=3)
+        con = sqlite3.connect(f"file:{OPENCODE_DB}?mode=ro", uri=True, timeout=3)
         try:
-            rows = db.execute(
-                """SELECT date(time_created/1000,'unixepoch','localtime') AS d,
-                          SUM(COALESCE(json_extract(data,'$.tokens.input'),0)
-                            + COALESCE(json_extract(data,'$.tokens.output'),0)
-                            + COALESCE(json_extract(data,'$.tokens.reasoning'),0)) AS t
-                   FROM session_message
-                   WHERE type='assistant' AND time_created >= ?
-                   GROUP BY d ORDER BY d""",
-                (since,),
+            daily = con.execute(
+                f"""SELECT date(time_created/1000,'unixepoch','localtime') AS d,
+                           SUM({tokens_expr})
+                    FROM session_message
+                    WHERE type='assistant' AND time_created >= ?
+                    GROUP BY d ORDER BY d""",
+                (since_ms,),
+            ).fetchall()
+            models = con.execute(
+                f"""SELECT json_extract(data,'$.model.id') AS m,
+                           SUM({tokens_expr}) AS t
+                    FROM session_message
+                    WHERE type='assistant' AND time_created >= ?
+                      AND json_extract(data,'$.model.id') IS NOT NULL
+                    GROUP BY m ORDER BY t DESC LIMIT 5""",
+                (month_ms,),
+            ).fetchall()
+            hourly = con.execute(
+                f"""SELECT CAST(strftime('%H', time_created/1000,'unixepoch','localtime') AS INTEGER) AS h,
+                           SUM({tokens_expr})
+                    FROM session_message
+                    WHERE type='assistant' AND time_created >= ?
+                    GROUP BY h""",
+                (month_ms,),
+            ).fetchall()
+            projects = con.execute(
+                """SELECT directory,
+                          SUM(tokens_input + tokens_output + tokens_reasoning) AS t
+                   FROM session_v2
+                   WHERE time_created >= ?
+                   GROUP BY directory""",
+                (month_ms,),
             ).fetchall()
         finally:
-            db.close()
+            con.close()
     except sqlite3.Error:
-        return []
-    out = []
-    for day, tokens in rows:
-        if day is None:
-            continue
-        out.append({"date": day, "tokens": int(tokens or 0)})
-    return out
+        return result
+
+    for day, tokens in daily:
+        if day:
+            result["tokens"].append({"date": day, "tokens": int(tokens or 0)})
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    if result["tokens"] and result["tokens"][-1]["date"] == today:
+        result["today_tokens"] = result["tokens"][-1]["tokens"]
+    past = [d["tokens"] for d in result["tokens"] if d["date"] != today][-7:]
+    past = [t for t in past if t > 0]
+    if len(past) >= 3:
+        baseline = int(sum(past) / len(past))
+        result["baseline_tokens"] = baseline
+        if baseline > 0:
+            result["habit_ratio"] = round(result["today_tokens"] / baseline, 2)
+
+    total_models = sum(int(t or 0) for _, t in models)
+    if total_models > 0:
+        result["models"] = [
+            {
+                "name": name,
+                "tokens": int(tokens or 0),
+                "share": round(int(tokens or 0) / total_models, 3),
+            }
+            for name, tokens in models
+        ]
+
+    by_project: dict[str, int] = {}
+    for directory, tokens in projects:
+        label = _project_label(directory or "")
+        by_project[label] = by_project.get(label, 0) + int(tokens or 0)
+    total_projects = sum(by_project.values())
+    if total_projects > 0:
+        result["projects"] = [
+            {"name": name, "tokens": tokens, "share": round(tokens / total_projects, 3)}
+            for name, tokens in sorted(
+                by_project.items(), key=lambda kv: kv[1], reverse=True
+            )[:5]
+        ]
+
+    for hour, tokens in hourly:
+        if hour is not None and 0 <= int(hour) < 24:
+            result["hourly"][int(hour)] = int(tokens or 0)
+
+    return result
 
 
 # --------------------------------------------------------------------------
@@ -405,9 +500,16 @@ def print_human(payload: dict) -> None:
                 f"  {dim}{'':<8} rythme {w['pace_per_day']:.1f} %/j ({w['pace_source']}) · "
                 f"projection {w['projected_percent']:.0f} %{reset}"
             )
-    tokens = payload.get("tokens") or []
-    if tokens:
-        print(f"  {dim}tokens aujourd'hui : {tokens[-1]['tokens']:,}{reset}")
+    stats = payload.get("stats") or {}
+    if stats.get("today_tokens"):
+        line = f"  {dim}aujourd'hui : {stats['today_tokens']:,} tokens"
+        if stats.get("habit_ratio") is not None:
+            line += f" ({stats['habit_ratio']:.1f}× ta moyenne 7 j)"
+        print(f"{line}{reset}")
+    for m in (stats.get("models") or [])[:3]:
+        print(f"  {dim}  {m['name']:<26} {m['share'] * 100:4.0f} %{reset}")
+    for p in (stats.get("projects") or [])[:3]:
+        print(f"  {dim}  {p['name']:<26} {p['share'] * 100:4.0f} %  projet{reset}")
 
 
 def main() -> int:
@@ -438,6 +540,7 @@ def main() -> int:
         "windows": {},
         "monthly_series": [],
         "tokens": [],
+        "stats": {},
         "notify": previous.get("notify", {}),
     }
 
@@ -458,7 +561,9 @@ def main() -> int:
                 payload["windows"][name] = build_window(name, raw[name], now, snaps)
             payload["monthly_series"] = daily_series(db, "monthly")
             db.close()
-            payload["tokens"] = local_token_series()
+            stats = local_stats()
+            payload["stats"] = stats
+            payload["tokens"] = stats["tokens"]
             payload["ok"] = True
         except urllib.error.HTTPError as exc:
             payload["error"] = f"HTTP {exc.code} — quota indisponible"

@@ -12,9 +12,10 @@ colorés selon le **risque projeté** (et non le pourcentage brut). Clic → dé
 - ton rythme réel (`%/jour`) face au rythme soutenable
 - ratio `0.91×` : au-dessous de 1, tu tiens ; au-dessus, tu vas saturer
 - projection : « à ce rythme, 92 % au reset » ou « quota épuisé dans X jours »
+- **où part le quota** sur 30 j : bascule Modèles / Projets (part de tokens)
+- **habitude du jour** : tokens consommés aujourd'hui face à ta moyenne des 7 jours
 - courbe 14 jours (construite à partir des relevés locaux)
 - fenêtres 5 h et semaine en secondaire
-- tokens consommés aujourd'hui (lu dans la base OpenCode)
 
 ## Architecture
 
@@ -58,6 +59,7 @@ opencode-meter --notify   # idem + notification si dépassement (1×/jour)
 | rythme soutenable | `(100 − % consommé) ÷ jours restants` |
 | ratio | `rythme ÷ soutenable` |
 | projection | `% consommé + rythme × jours restants` |
+| habitude | `tokens du jour ÷ moyenne des 7 jours précédents` |
 
 Le début de fenêtre est déduit du reset : −5 h (5 h), −7 j (semaine),
 −1 mois calendaire (mois). Sous 5 h restantes, le rythme soutenable n'est pas
