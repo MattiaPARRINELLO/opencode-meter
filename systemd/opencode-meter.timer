@@ -1,0 +1,11 @@
+[Unit]
+Description=OpenCode Meter — rafraîchissement périodique
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

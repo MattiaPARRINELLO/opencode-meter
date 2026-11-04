@@ -1,0 +1,9 @@
+[Unit]
+Description=OpenCode Meter — collecte du quota OpenCode Go
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 @APP_DIR@/collect.py --notify --quiet
+TimeoutStartSec=60

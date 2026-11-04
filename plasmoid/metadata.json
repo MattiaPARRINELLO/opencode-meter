@@ -1,0 +1,19 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Mattia"
+            }
+        ],
+        "Category": "System Information",
+        "Description": "Suivi du quota OpenCode Go avec projection du rythme mensuel",
+        "Icon": "office-chart-bar",
+        "Id": "io.github.mattia.opencodemeter",
+        "License": "MIT",
+        "Name": "OpenCode Meter",
+        "Version": "1.0.0",
+        "Website": "https://github.com/mattia/opencode-meter"
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0"
+}
