@@ -18,6 +18,19 @@ QQC.Control {
     readonly property var stats: plasmoidItem.usage && plasmoidItem.usage.stats
                                  ? plasmoidItem.usage.stats : ({})
 
+    readonly property bool hasProfile: stats.weekday !== undefined
+                                       && stats.weekday !== null
+                                       && stats.weekday.length === 7
+
+    readonly property real maxFactor: {
+        if (!hasProfile)
+            return 1;
+        var best = 0;
+        for (var i = 0; i < stats.weekday.length; ++i)
+            best = Math.max(best, stats.weekday[i].factor);
+        return best > 0 ? best : 1;
+    }
+
     property string breakdownMode: "models"
 
     readonly property var breakdown: {
@@ -40,7 +53,7 @@ QQC.Control {
                                                Kirigami.Theme.textColor.b, 0.16)
 
     implicitWidth: Kirigami.Units.gridUnit * 21
-    implicitHeight: content.implicitHeight + padding * 2
+    implicitHeight: content.implicitHeight + padding * 2 + Kirigami.Units.gridUnit * 2
     padding: Kirigami.Units.largeSpacing
 
     contentItem: ColumnLayout {
@@ -327,6 +340,70 @@ QQC.Control {
             }
         }
 
+
+        // ---------- habitudes hebdomadaires ----------
+        QQC.Label {
+            Layout.fillWidth: true
+            Layout.topMargin: Kirigami.Units.smallSpacing
+            visible: full.hasProfile
+            text: i18n("Habitudes · 4 semaines")
+            font.pointSize: Kirigami.Theme.smallFont.pointSize
+            color: Kirigami.Theme.disabledTextColor
+        }
+
+        Item {
+            Layout.fillWidth: true
+            visible: full.hasProfile
+            implicitHeight: Kirigami.Units.gridUnit * 2.4
+
+            Row {
+                id: weekRow
+                anchors.fill: parent
+                spacing: 2
+
+                Repeater {
+                    model: full.hasProfile ? full.stats.weekday : []
+                    delegate: Item {
+                        required property var modelData
+                        width: (weekRow.width - 2 * 6) / 7
+                        height: weekRow.height
+
+                        Rectangle {
+                            anchors.bottom: parent.bottom
+                            anchors.bottomMargin: Kirigami.Theme.smallFont.pointSize + 4
+                            width: parent.width
+                            height: Math.max(2, (parent.height - Kirigami.Theme.smallFont.pointSize - 4)
+                                                * Math.min(modelData.factor / full.maxFactor, 1))
+                            radius: 1
+                            color: modelData.dow === 0 || modelData.dow === 6
+                                   ? Qt.rgba(Kirigami.Theme.textColor.r,
+                                             Kirigami.Theme.textColor.g,
+                                             Kirigami.Theme.textColor.b, 0.28)
+                                   : Qt.rgba(Kirigami.Theme.textColor.r,
+                                             Kirigami.Theme.textColor.g,
+                                             Kirigami.Theme.textColor.b, 0.6)
+                        }
+                        QQC.Label {
+                            anchors.bottom: parent.bottom
+                            width: parent.width
+                            text: ["D", "L", "M", "M", "J", "V", "S"][modelData.dow]
+                            font.pointSize: Kirigami.Theme.smallFont.pointSize
+                            color: Kirigami.Theme.disabledTextColor
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+                    }
+                }
+            }
+        }
+
+        QQC.Label {
+            Layout.fillWidth: true
+            visible: full.hasProfile
+            text: full.habitSummary()
+            font.pointSize: Kirigami.Theme.smallFont.pointSize
+            color: Kirigami.Theme.disabledTextColor
+        }
+
         // ---------- autres fenêtres ----------
         Rectangle {
             Layout.fillWidth: true
@@ -397,6 +474,9 @@ QQC.Control {
         }
     }
 
+
+
+
     function updatedText() {
         var raw = plasmoidItem.usage ? plasmoidItem.usage.generated_at : null;
         if (!raw)
@@ -405,6 +485,20 @@ QQC.Control {
         if (isNaN(d.getTime()))
             return "";
         return i18n("maj %1", Qt.formatTime(d, "HH:mm"));
+    }
+
+    function habitSummary() {
+        var s = full.stats;
+        var parts = [];
+        if (s.active_days_per_week !== null && s.active_days_per_week !== undefined)
+            parts.push(i18n("%1 j actifs / 7", s.active_days_per_week.toFixed(1).replace(".", ",")));
+        if (s.weekend_ratio !== null && s.weekend_ratio !== undefined) {
+            var pct = Math.round(s.weekend_ratio * 100);
+            parts.push(pct < 0
+                ? i18n("week-end %1 % de moins", Math.abs(pct))
+                : i18n("week-end %1 % de plus", pct));
+        }
+        return parts.join(" · ");
     }
 
     function footerText() {
@@ -425,6 +519,10 @@ QQC.Control {
             return plasmoidItem.lastError || "";
         if (m.percent >= 100)
             return i18n("Quota épuisé — reset dans %1", plasmoidItem.fmtDuration(m.reset_in_seconds));
+        if (m.saturation_in_days !== null && m.saturation_in_days < m.remaining_days - 1) {
+            return i18n("Limite atteinte dans %1 j, avant le reset (dans %2 j).",
+                        Math.floor(m.saturation_in_days), Math.floor(m.remaining_days));
+        }
         if (m.eta_days !== null && m.eta_days < m.remaining_days - 1)
             return i18n("Limite atteinte dans %1 j, avant le reset (dans %2 j).",
                         Math.floor(m.eta_days), Math.floor(m.remaining_days));

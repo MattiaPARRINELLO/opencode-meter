@@ -197,8 +197,89 @@ def build_window(name: str, raw: dict, now: datetime, snapshots: list) -> dict:
         "ratio": round(ratio, 2) if ratio is not None else None,
         "projected_percent": round(projected, 1),
         "eta_days": round(eta_days, 1) if eta_days is not None else None,
+        "projection_source": "linéaire",
+        "projected_linear_percent": None,
+        "saturation_in_days": None,
         "state": ratio_state(ratio, percent),
     }
+
+
+# --------------------------------------------------------------------------
+# Profil d'activité et projection pondérée
+# --------------------------------------------------------------------------
+
+
+def _next_midnight(moment: datetime) -> datetime:
+    return (moment.replace(hour=0, minute=0, second=0, microsecond=0)
+            + timedelta(days=1))
+
+
+def weighted_units(start: datetime, end: datetime, factors: list[float]) -> float:
+    """Nombre de « journées moyennes » entre deux dates, pondéré par jour de semaine."""
+    if end <= start:
+        return 0.0
+    total = 0.0
+    cursor = start
+    while cursor < end:
+        boundary = min(_next_midnight(cursor), end)
+        fraction = (boundary - cursor).total_seconds() / 86400
+        total += fraction * factors[(cursor.weekday() + 1) % 7]
+        cursor = boundary
+    return total
+
+
+def saturation_days(percent: float, now: datetime, reset: datetime,
+                    factors: list[float], rate_per_unit: float) -> float | None:
+    """Jours avant d'atteindre 100 %, en suivant le profil hebdomadaire."""
+    remaining = 100.0 - percent
+    if remaining <= 0:
+        return 0.0
+    if rate_per_unit <= 0:
+        return None
+    elapsed = 0.0
+    cursor = now
+    while cursor < reset:
+        boundary = min(_next_midnight(cursor), reset)
+        days = (boundary - cursor).total_seconds() / 86400
+        remaining -= rate_per_unit * days * factors[(cursor.weekday() + 1) % 7]
+        elapsed += days
+        cursor = boundary
+        if remaining <= 0:
+            return elapsed
+    return None
+
+
+def apply_activity_profile(window: dict, stats: dict, now: datetime) -> None:
+    """Remplace la projection linéaire par une projection basée sur les habitudes."""
+    weekday = stats.get("weekday") or []
+    if len(weekday) != 7 or (stats.get("profile_days") or 0) < 14:
+        return
+    factors = [float(day["factor"]) for day in weekday]
+    if not any(factors):
+        return
+    start = parse_iso_utc(window["window_start"]).astimezone()
+    reset = parse_iso_utc(window["resets_at"]).astimezone()
+    now_local = now.astimezone()
+    elapsed_units = weighted_units(start, now_local, factors)
+    remaining_units = weighted_units(now_local, reset, factors)
+    if elapsed_units < 0.3:
+        return
+    rate = window["percent"] / elapsed_units
+    projected = window["percent"] + rate * remaining_units
+    window["projected_linear_percent"] = window["projected_percent"]
+    window["projected_percent"] = round(min(projected, 999.0), 1)
+    window["projection_source"] = "habitudes"
+    saturation = saturation_days(window["percent"], now_local, reset, factors, rate)
+    window["saturation_in_days"] = round(saturation, 1) if saturation is not None else None
+    # La couleur suit la projection, pas le pourcentage brut.
+    if window["percent"] >= 100:
+        window["state"] = "exhausted"
+    elif window["projected_percent"] >= 100:
+        window["state"] = "over"
+    elif window["projected_percent"] >= 90:
+        window["state"] = "warn"
+    else:
+        window["state"] = "ok"
 
 
 # --------------------------------------------------------------------------
@@ -284,10 +365,14 @@ def _project_label(directory: str) -> str:
     return Path(directory).name or directory
 
 
-def local_stats(days: int = 14, month_days: int = 30) -> dict:
+def local_stats(days: int = 28, month_days: int = 30, chart_days: int = 14) -> dict:
     """Tokens par jour, modèles, projets et heures de consommation."""
     result = {
         "tokens": [],
+        "weekday": [],
+        "weekend_ratio": None,
+        "active_days_per_week": None,
+        "profile_days": 0,
         "today_tokens": 0,
         "baseline_tokens": None,
         "habit_ratio": None,
@@ -352,6 +437,45 @@ def local_stats(days: int = 14, month_days: int = 30) -> dict:
         if day:
             result["tokens"].append({"date": day, "tokens": int(tokens or 0)})
 
+    # Profil hebdomadaire : moyenne de tokens par jour de semaine sur 4 semaines.
+    day_map = {day: int(tokens or 0) for day, tokens in daily if day}
+    today_date = datetime.now().date()
+    start_date = today_date - timedelta(days=days - 1)
+    weekday_totals = [0.0] * 7
+    weekday_counts = [0] * 7
+    active_days = 0
+    for i in range(days):
+        current = start_date + timedelta(days=i)
+        tokens = day_map.get(current.isoformat(), 0)
+        dow = (current.weekday() + 1) % 7  # 0 = dimanche
+        weekday_totals[dow] += tokens
+        weekday_counts[dow] += 1
+        if tokens > 50_000:
+            active_days += 1
+    weekday_avg = [
+        weekday_totals[i] / weekday_counts[i] if weekday_counts[i] else 0.0
+        for i in range(7)
+    ]
+    overall_avg = sum(weekday_avg) / 7
+    if overall_avg > 0:
+        result["weekday"] = [
+            {
+                "dow": i,
+                "tokens": int(weekday_avg[i]),
+                "factor": round(weekday_avg[i] / overall_avg, 3),
+            }
+            for i in range(7)
+        ]
+        weekdays = sum(weekday_avg[1:6]) / 5
+        weekend = (weekday_avg[0] + weekday_avg[6]) / 2
+        if weekdays > 0:
+            result["weekend_ratio"] = round(weekend / weekdays - 1, 3)
+        result["active_days_per_week"] = round(active_days / days * 7, 1)
+        result["profile_days"] = days
+
+    # La courbe du popup reste sur 14 jours pour rester lisible.
+    result["tokens"] = result["tokens"][-chart_days:]
+
     today = datetime.now().strftime("%Y-%m-%d")
     if result["tokens"] and result["tokens"][-1]["date"] == today:
         result["today_tokens"] = result["tokens"][-1]["tokens"]
@@ -406,6 +530,45 @@ def maybe_notify(payload: dict, previous: dict) -> bool:
     triggered = (
         ratio is not None and ratio > NOTIFY_RATIO
     ) or percent >= NOTIFY_PERCENT
+    # Profil hebdomadaire : moyenne de tokens par jour de semaine sur 4 semaines.
+    day_map = {day: int(tokens or 0) for day, tokens in daily if day}
+    today_date = datetime.now().date()
+    start_date = today_date - timedelta(days=days - 1)
+    weekday_totals = [0.0] * 7
+    weekday_counts = [0] * 7
+    active_days = 0
+    for i in range(days):
+        current = start_date + timedelta(days=i)
+        tokens = day_map.get(current.isoformat(), 0)
+        dow = (current.weekday() + 1) % 7  # 0 = dimanche
+        weekday_totals[dow] += tokens
+        weekday_counts[dow] += 1
+        if tokens > 50_000:
+            active_days += 1
+    weekday_avg = [
+        weekday_totals[i] / weekday_counts[i] if weekday_counts[i] else 0.0
+        for i in range(7)
+    ]
+    overall_avg = sum(weekday_avg) / 7
+    if overall_avg > 0:
+        result["weekday"] = [
+            {
+                "dow": i,
+                "tokens": int(weekday_avg[i]),
+                "factor": round(weekday_avg[i] / overall_avg, 3),
+            }
+            for i in range(7)
+        ]
+        weekdays = sum(weekday_avg[1:6]) / 5
+        weekend = (weekday_avg[0] + weekday_avg[6]) / 2
+        if weekdays > 0:
+            result["weekend_ratio"] = round(weekend / weekdays - 1, 3)
+        result["active_days_per_week"] = round(active_days / days * 7, 1)
+        result["profile_days"] = days
+
+    # La courbe du popup reste sur 14 jours pour rester lisible.
+    result["tokens"] = result["tokens"][-chart_days:]
+
     today = datetime.now().strftime("%Y-%m-%d")
     if not triggered or previous.get("last_date") == today:
         return False
@@ -493,14 +656,21 @@ def print_human(payload: dict) -> None:
             print(
                 f"  {dim}{'':<8} rythme {w['pace_per_day']:.1f} %/j ({w['pace_source']}) · "
                 f"soutenable {w['sustainable_per_day']:.1f} %/j · "
-                f"projection {w['projected_percent']:.0f} %{reset}"
+                f"projection {w['projected_percent']:.0f} %"
+                f"{' (habitudes)' if w.get('projection_source') == 'habitudes' else ''}{reset}"
             )
         else:
             print(
                 f"  {dim}{'':<8} rythme {w['pace_per_day']:.1f} %/j ({w['pace_source']}) · "
-                f"projection {w['projected_percent']:.0f} %{reset}"
+                f"projection {w['projected_percent']:.0f} %"
+                f"{' (habitudes)' if w.get('projection_source') == 'habitudes' else ''}{reset}"
             )
     stats = payload.get("stats") or {}
+    if stats.get("weekend_ratio") is not None or stats.get("active_days_per_week"):
+        habit = f"  {dim}profil : {stats.get('active_days_per_week')} j actifs/7"
+        if stats.get("weekend_ratio") is not None:
+            habit += f" · week-end {stats['weekend_ratio'] * 100:+.0f} %"
+        print(f"{habit}{reset}")
     if stats.get("today_tokens"):
         line = f"  {dim}aujourd'hui : {stats['today_tokens']:,} tokens"
         if stats.get("habit_ratio") is not None:
@@ -564,6 +734,9 @@ def main() -> int:
             stats = local_stats()
             payload["stats"] = stats
             payload["tokens"] = stats["tokens"]
+            for name in ("weekly", "monthly"):
+                if name in payload["windows"]:
+                    apply_activity_profile(payload["windows"][name], stats, now)
             payload["ok"] = True
         except urllib.error.HTTPError as exc:
             payload["error"] = f"HTTP {exc.code} — quota indisponible"

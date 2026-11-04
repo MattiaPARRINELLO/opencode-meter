@@ -14,6 +14,8 @@ colorés selon le **risque projeté** (et non le pourcentage brut). Clic → dé
 - projection : « à ce rythme, 92 % au reset » ou « quota épuisé dans X jours »
 - **où part le quota** sur 30 j : bascule Modèles / Projets (part de tokens)
 - **habitude du jour** : tokens consommés aujourd'hui face à ta moyenne des 7 jours
+- **profil hebdomadaire** : consommation moyenne par jour (D→S), jours actifs par semaine,
+  écart week-end — et la projection en tient compte
 - courbe 14 jours (construite à partir des relevés locaux)
 - fenêtres 5 h et semaine en secondaire
 
@@ -60,12 +62,18 @@ opencode-meter --notify   # idem + notification si dépassement (1×/jour)
 | ratio | `rythme ÷ soutenable` |
 | projection | `% consommé + rythme × jours restants` |
 | habitude | `tokens du jour ÷ moyenne des 7 jours précédents` |
+| profil | moyenne de tokens par jour de semaine sur 28 jours, normalisée (1 = journée moyenne) |
+| projection pondérée | `% consommé ÷ jours pondérés écoulés × jours pondérés restants` |
 
 Le début de fenêtre est déduit du reset : −5 h (5 h), −7 j (semaine),
 −1 mois calendaire (mois). Sous 5 h restantes, le rythme soutenable n'est pas
 affiché (il tend vers l'infini).
 
-Couleurs : vert `< 0.95×`, ambre `≥ 0.95×`, rouge `≥ 1.10×` ou quota épuisé.
+Quand 14 jours de données locales existent, la projection n'est plus linéaire : chaque
+jour restant est pondéré par le profil hebdomadaire (un samedi creux compte moins qu'un
+mardi chargé). Le champ `projection_source` passe alors à `"habitudes"`.
+
+Couleurs : vert `< 90 %` projeté, ambre `≥ 90 %`, rouge `≥ 100 %` ou quota épuisé.
 
 ## Limites connues
 
