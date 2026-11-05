@@ -597,56 +597,19 @@ def add_today_budget(payload: dict, stats: dict, now: datetime) -> None:
 
 
 def maybe_notify(payload: dict, previous: dict) -> bool:
-    monthly = payload["windows"]["monthly"]
+    monthly = payload["windows"].get("monthly")
+    if not monthly:
+        return False
     ratio = monthly.get("ratio")
     percent = monthly["percent"]
     triggered = (
         ratio is not None and ratio > NOTIFY_RATIO
     ) or percent >= NOTIFY_PERCENT
-    # Profil hebdomadaire : moyenne de tokens par jour de semaine sur 4 semaines.
-    day_map = {day: int(tokens or 0) for day, tokens in daily if day}
-    today_date = datetime.now().date()
-    start_date = today_date - timedelta(days=days - 1)
-    weekday_totals = [0.0] * 7
-    weekday_counts = [0] * 7
-    active_days = 0
-    for i in range(days):
-        current = start_date + timedelta(days=i)
-        tokens = day_map.get(current.isoformat(), 0)
-        dow = (current.weekday() + 1) % 7  # 0 = dimanche
-        weekday_totals[dow] += tokens
-        weekday_counts[dow] += 1
-        if tokens > 50_000:
-            active_days += 1
-    weekday_avg = [
-        weekday_totals[i] / weekday_counts[i] if weekday_counts[i] else 0.0
-        for i in range(7)
-    ]
-    overall_avg = sum(weekday_avg) / 7
-    if overall_avg > 0:
-        result["weekday"] = [
-            {
-                "dow": i,
-                "tokens": int(weekday_avg[i]),
-                "factor": round(weekday_avg[i] / overall_avg, 3),
-            }
-            for i in range(7)
-        ]
-        weekdays = sum(weekday_avg[1:6]) / 5
-        weekend = (weekday_avg[0] + weekday_avg[6]) / 2
-        if weekdays > 0:
-            result["weekend_ratio"] = round(weekend / weekdays - 1, 3)
-        result["active_days_per_week"] = round(active_days / days * 7, 1)
-        result["profile_days"] = days
-
-    # La courbe du popup reste sur 14 jours pour rester lisible.
-    result["tokens"] = result["tokens"][-chart_days:]
 
     today = datetime.now().strftime("%Y-%m-%d")
     if not triggered or previous.get("last_date") == today:
         return False
-    if not shutil.which("notify-send"):
-        return False
+
     if ratio is not None:
         detail = (
             f"{percent:.0f} % utilisé · rythme {monthly['pace_per_day']:.1f} %/j "
@@ -657,26 +620,38 @@ def maybe_notify(payload: dict, previous: dict) -> bool:
         detail = f"{percent:.0f} % utilisé"
         projection = "Rythme encore inconnu, continue pour affiner la projection."
     body = f"Quota mensuel OpenCode Go : {detail}\n{projection}"
-    try:
-        subprocess.run(
-            [
-                "notify-send",
-                "-a",
-                "OpenCode Meter",
-                "-u",
-                "normal",
-                "-i",
-                "office-chart-bar",
-                "OpenCode Meter : attention au quota",
-                body,
-            ],
-            check=False,
-            timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
+    if not send_notification("OpenCode Meter : attention au quota", body):
         return False
     payload.setdefault("notify", {})["last_date"] = today
     return True
+
+
+def send_notification(title: str, body: str) -> bool:
+    """Notification KDE via D-Bus, avec repli sur kdialog puis notify-send."""
+    icon = "office-chart-bar"
+    attempts = [
+        [
+            "gdbus", "call", "--session",
+            "--dest", "org.freedesktop.Notifications",
+            "--object-path", "/org/freedesktop/Notifications",
+            "--method", "org.freedesktop.Notifications.Notify",
+            "OpenCode Meter", "0", icon, title, body, "[]", "{}", "8000",
+        ],
+        ["kdialog", "--title", "OpenCode Meter", "--passivepopup", body, "10"],
+        ["notify-send", "-a", "OpenCode Meter", "-i", icon, title, body],
+    ]
+    for command in attempts:
+        if not shutil.which(command[0]):
+            continue
+        try:
+            result = subprocess.run(
+                command, capture_output=True, timeout=8, check=False
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode == 0:
+            return True
+    return False
 
 
 # --------------------------------------------------------------------------
@@ -823,7 +798,10 @@ def main() -> int:
             payload["error"] = f"{type(exc).__name__}: {exc}"
 
     if args.notify:
-        maybe_notify(payload, previous)
+        try:
+            maybe_notify(payload, previous)
+        except Exception as exc:  # une notification ne doit jamais faire échouer le relevé
+            print(f"notification: {type(exc).__name__}: {exc}", file=sys.stderr)
 
     USAGE_JSON.write_text(json.dumps(payload, ensure_ascii=False, indent=1))
 
@@ -831,7 +809,10 @@ def main() -> int:
         print(json.dumps(payload, ensure_ascii=False, indent=1))
     elif not args.quiet:
         print_human(payload)
-    return 0 if payload["ok"] else 1
+    elif not payload["ok"]:
+        # Le timer ne doit pas échouer sur une panne réseau, mais on garde une trace.
+        print(f"opencode-meter: {payload['error']}", file=sys.stderr)
+    return 0 if payload["ok"] or args.notify else 1
 
 
 if __name__ == "__main__":

@@ -32,7 +32,7 @@ et par projet, profil hebdomadaire.
 
 - KDE Plasma 6 (testé sur 6.8, Wayland)
 - Python 3.11 ou plus
-- `systemd --user`, `kpackagetool6`, `notify-send`
+- `systemd --user`, `kpackagetool6`, `gdbus` (ou `kdialog`) pour les notifications
 - OpenCode configuré avec un compte `opencode-go`
   (clé dans `~/.local/share/opencode/account.json`)
 
