@@ -140,15 +140,22 @@ def ratio_state(ratio: float | None, percent: float) -> str:
 
 
 def observed_pace(rows: list[tuple[int, float]]) -> float | None:
-    """Rythme %/jour observé sur les snapshots de la fenêtre courante."""
+    """Rythme %/jour observé sur les snapshots de la fenêtre courante.
+
+    Le quota est arrondi à l'entier : sur quelques heures, un seul point de
+    pourcentage extrapolé à la journée donne des chiffres absurdes. On exige
+    donc au moins 1,5 jour et 2 points d'écart, sinon on retombe sur la
+    moyenne depuis le début de la fenêtre.
+    """
     if len(rows) < 2:
         return None
     first_ts, first_pct = rows[0]
     last_ts, last_pct = rows[-1]
     span_days = (last_ts - first_ts) / 86400
-    if span_days < 0.25:  # moins de 6 h d'historique : trop bruité
+    delta = last_pct - first_pct
+    if span_days < 1.5 or delta < 2:
         return None
-    return max(0.0, (last_pct - first_pct) / span_days)
+    return max(0.0, delta / span_days)
 
 
 def build_window(name: str, raw: dict, now: datetime, snapshots: list) -> dict:
@@ -161,7 +168,7 @@ def build_window(name: str, raw: dict, now: datetime, snapshots: list) -> dict:
 
     pace = observed_pace(snapshots)
     source = "observé"
-    if pace is None and elapsed_days > 0.02:
+    if pace is None and elapsed_days > 0.25:
         pace = percent / elapsed_days
         source = "moyen"
     if pace is None:

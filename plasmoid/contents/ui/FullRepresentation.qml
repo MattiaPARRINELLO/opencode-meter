@@ -567,9 +567,6 @@ QQC.Control {
             return i18n("Limite atteinte dans %1 j, avant le reset (dans %2 j).",
                         Math.floor(m.saturation_in_days), Math.floor(m.remaining_days));
         }
-        if (m.eta_days !== null && m.eta_days < m.remaining_days - 1)
-            return i18n("Limite atteinte dans %1 j, avant le reset (dans %2 j).",
-                        Math.floor(m.eta_days), Math.floor(m.remaining_days));
         if (m.projected_percent >= 100)
             return i18n("Tu frôles la limite : %1 % au reset.", Math.round(m.projected_percent));
         return i18n("À ce rythme : %1 % au reset.", Math.round(m.projected_percent));
