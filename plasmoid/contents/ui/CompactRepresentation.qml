@@ -34,7 +34,7 @@ Item {
             radius: width / 2
             anchors.verticalCenter: parent.verticalCenter
             color: compact.monthly
-                   ? compact.plasmoidItem.stateColor(compact.monthly.state)
+                   ? compact.plasmoidItem.stateColor(compact.plasmoidItem.pillState())
                    : Kirigami.Theme.disabledTextColor
         }
 
@@ -43,7 +43,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             text: compact.plasmoidItem.compactText()
             color: compact.monthly
-                   ? compact.plasmoidItem.stateColor(compact.monthly.state)
+                   ? compact.plasmoidItem.stateColor(compact.plasmoidItem.pillState())
                    : Kirigami.Theme.textColor
             font.pointSize: Kirigami.Theme.defaultFont.pointSize
             font.weight: Font.DemiBold
@@ -58,6 +58,13 @@ Item {
             var m = compact.monthly;
             if (!m)
                 return compact.plasmoidItem.lastError || "Chargement…";
+            if (compact.plasmoidItem.hasTodayBudget()) {
+                var s = compact.plasmoidItem.stats;
+                return "Aujourd'hui : " + Math.round(s.today_budget_ratio * 100) + " % du budget du jour"
+                     + "\n" + s.today_quota_percent.toFixed(1).replace(".", ",") + " % du quota"
+                     + " (" + s.today_budget_percent.toFixed(1).replace(".", ",") + " % disponible)"
+                     + " · reste " + Math.floor(m.remaining_days) + " j";
+            }
             return Math.round(m.percent) + " % du quota mensuel · reste "
                  + compact.plasmoidItem.fmtDuration(m.reset_in_seconds);
         }

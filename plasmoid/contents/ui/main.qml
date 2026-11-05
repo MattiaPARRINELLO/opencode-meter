@@ -18,6 +18,7 @@ PlasmoidItem {
                                     ? usage.windows.weekly : null
     readonly property var rolling: usage && usage.windows && usage.windows.rolling
                                      ? usage.windows.rolling : null
+    readonly property var stats: usage && usage.stats ? usage.stats : ({})
 
     readonly property string readCommand: "cat " + Paths.usageFile
     readonly property string refreshCommand: Paths.refreshCommand
@@ -47,7 +48,25 @@ PlasmoidItem {
         return m + " min";
     }
 
+    function hasTodayBudget() {
+        return stats.today_budget_ratio !== undefined && stats.today_budget_ratio !== null;
+    }
+
+    // État de la journée : 100 % = pile dans le budget du jour.
+    function pillState() {
+        if (!hasTodayBudget())
+            return monthly ? monthly.state : "ok";
+        var ratio = stats.today_budget_ratio;
+        if (ratio >= 1.15)
+            return "over";
+        if (ratio >= 0.9)
+            return "warn";
+        return "ok";
+    }
+
     function compactText() {
+        if (hasTodayBudget())
+            return Math.round(stats.today_budget_ratio * 100) + "%";
         if (!monthly)
             return "—";
         var days = Math.ceil(monthly.remaining_days);

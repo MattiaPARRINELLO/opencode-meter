@@ -3,12 +3,14 @@
 Widget KDE Plasma qui suit le **quota OpenCode Go** (fenêtres 5 h / semaine / mois)
 et projette ton rythme de consommation pour t'aider à tenir jusqu'au reset.
 
-Dans le panneau : `10% · 27j` — le pourcentage du quota mensuel et les jours restants,
-colorés selon le **risque projeté** (et non le pourcentage brut). Clic → détail.
+Dans le panneau : `9%` — la part du **budget du jour** déjà consommée
+(100 % = pile dans les temps ; plus = tu brûles plus vite que ton budget).
+La couleur suit ce ratio. Clic → détail.
 
 ## Ce que montre le popup
 
 - jauge du quota mensuel avec un repère de temps écoulé
+- **aujourd'hui** : `9 % du budget` et le détail `0,3 / 3,6 % du quota`
 - ton rythme réel (`%/jour`) face au rythme soutenable
 - ratio `0.91×` : au-dessous de 1, tu tiens ; au-dessus, tu vas saturer
 - projection : « à ce rythme, 92 % au reset » ou « quota épuisé dans X jours »
@@ -64,6 +66,9 @@ opencode-meter --notify   # idem + notification si dépassement (1×/jour)
 | habitude | `tokens du jour ÷ moyenne des 7 jours précédents` |
 | profil | moyenne de tokens par jour de semaine sur 28 jours, normalisée (1 = journée moyenne) |
 | projection pondérée | `% consommé ÷ jours pondérés écoulés × jours pondérés restants` |
+| budget du jour | `% du quota restant ÷ jours pondérés restants × facteur du jour` |
+| conso du jour | `tokens opencode-go du jour × (% consommé ÷ tokens de la fenêtre)` |
+| ratio du jour | `conso du jour ÷ budget du jour` |
 
 Le début de fenêtre est déduit du reset : −5 h (5 h), −7 j (semaine),
 −1 mois calendaire (mois). Sous 5 h restantes, le rythme soutenable n'est pas

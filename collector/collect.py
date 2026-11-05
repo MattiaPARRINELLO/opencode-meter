@@ -351,6 +351,31 @@ def daily_series(db: sqlite3.Connection, name: str, days: int = 14) -> list[dict
 # --------------------------------------------------------------------------
 
 
+def quota_tokens_since(start_ms: int) -> int:
+    """Tokens opencode-go consommés depuis un instant (ms epoch)."""
+    if not OPENCODE_DB.exists():
+        return 0
+    tokens_expr = (
+        "COALESCE(json_extract(data,'$.tokens.input'),0)"
+        " + COALESCE(json_extract(data,'$.tokens.output'),0)"
+        " + COALESCE(json_extract(data,'$.tokens.reasoning'),0)"
+    )
+    try:
+        con = sqlite3.connect(f"file:{OPENCODE_DB}?mode=ro", uri=True, timeout=3)
+        try:
+            row = con.execute(
+                f"""SELECT SUM({tokens_expr}) FROM session_message
+                    WHERE type='assistant' AND time_created >= ?
+                      AND json_extract(data,'$.model.providerID') = 'opencode-go'""",
+                (start_ms,),
+            ).fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return 0
+    return int(row[0] or 0)
+
+
 def _project_label(directory: str) -> str:
     """Nom lisible : les worktrees T3 sont ramenés au projet d'origine."""
     if not directory:
@@ -518,6 +543,54 @@ def local_stats(days: int = 28, month_days: int = 30, chart_days: int = 14) -> d
     return result
 
 
+def add_today_budget(payload: dict, stats: dict, now: datetime) -> None:
+    """Part du budget du jour déjà consommée (100 % = pile dans les temps)."""
+    window = payload["windows"].get("monthly")
+    if not window:
+        return
+    weekday = stats.get("weekday") or []
+    factors = [float(d["factor"]) for d in weekday] if len(weekday) == 7 else [1.0] * 7
+    if not any(factors):
+        factors = [1.0] * 7
+    start = parse_iso_utc(window["window_start"]).astimezone()
+    reset = parse_iso_utc(window["resets_at"]).astimezone()
+    now_local = now.astimezone()
+    remaining_units = weighted_units(now_local, reset, factors)
+    if remaining_units <= 0.1:
+        return
+    today_dow = (now_local.weekday() + 1) % 7
+    budget_today = window["remaining_percent"] / remaining_units * factors[today_dow]
+    if budget_today <= 0:
+        return
+
+    midnight = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    tokens_window = quota_tokens_since(int(start.timestamp() * 1000))
+    tokens_today = quota_tokens_since(int(midnight.timestamp() * 1000))
+    if tokens_window >= 1_000_000 and window["percent"] > 0:
+        per_token = window["percent"] / tokens_window
+        used_today = tokens_today * per_token
+        source = "tokens"
+    else:
+        # Repli : delta de quota entre le premier relevé du jour et maintenant.
+        used_today = 0.0
+        source = "relevés"
+        db = open_state_db()
+        row = db.execute(
+            "SELECT percent FROM snapshots WHERE window='monthly' AND ts >= ? ORDER BY ts LIMIT 1",
+            (int(midnight.timestamp()),),
+        ).fetchone()
+        db.close()
+        if row is None:
+            return
+        used_today = max(window["percent"] - float(row[0]), 0.0)
+
+    ratio = used_today / budget_today
+    stats["today_quota_percent"] = round(used_today, 2)
+    stats["today_budget_percent"] = round(budget_today, 2)
+    stats["today_budget_ratio"] = round(ratio, 3)
+    stats["today_budget_source"] = source
+
+
 # --------------------------------------------------------------------------
 # Notification
 # --------------------------------------------------------------------------
@@ -671,6 +744,11 @@ def print_human(payload: dict) -> None:
         if stats.get("weekend_ratio") is not None:
             habit += f" · week-end {stats['weekend_ratio'] * 100:+.0f} %"
         print(f"{habit}{reset}")
+    if stats.get("today_budget_ratio") is not None:
+        print(
+            f"  {dim}aujourd'hui : {stats['today_budget_ratio'] * 100:.0f} % du budget du jour "
+            f"({stats['today_quota_percent']:.1f} / {stats['today_budget_percent']:.1f} % du quota){reset}"
+        )
     if stats.get("today_tokens"):
         line = f"  {dim}aujourd'hui : {stats['today_tokens']:,} tokens"
         if stats.get("habit_ratio") is not None:
@@ -737,6 +815,7 @@ def main() -> int:
             for name in ("weekly", "monthly"):
                 if name in payload["windows"]:
                     apply_activity_profile(payload["windows"][name], stats, now)
+            add_today_budget(payload, stats, now)
             payload["ok"] = True
         except urllib.error.HTTPError as exc:
             payload["error"] = f"HTTP {exc.code} — quota indisponible"

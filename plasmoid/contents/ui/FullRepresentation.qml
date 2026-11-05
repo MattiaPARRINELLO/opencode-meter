@@ -18,6 +18,19 @@ QQC.Control {
     readonly property var stats: plasmoidItem.usage && plasmoidItem.usage.stats
                                  ? plasmoidItem.usage.stats : ({})
 
+    readonly property bool hasToday: stats.today_budget_ratio !== undefined
+                                     && stats.today_budget_ratio !== null
+
+    readonly property string todayState: {
+        if (!hasToday)
+            return "ok";
+        if (stats.today_budget_ratio >= 1.15)
+            return "over";
+        if (stats.today_budget_ratio >= 0.9)
+            return "warn";
+        return "ok";
+    }
+
     readonly property bool hasProfile: stats.weekday !== undefined
                                        && stats.weekday !== null
                                        && stats.weekday.length === 7
@@ -134,6 +147,37 @@ QQC.Control {
                 anchors.verticalCenter: parent.verticalCenter
                 color: Kirigami.Theme.textColor
                 opacity: 0.55
+            }
+        }
+
+
+        // ---------- budget du jour ----------
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: Kirigami.Units.smallSpacing
+            visible: full.hasToday
+            spacing: Kirigami.Units.smallSpacing
+
+            QQC.Label {
+                text: i18n("Aujourd'hui")
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                color: Kirigami.Theme.disabledTextColor
+            }
+            QQC.Label {
+                text: Math.round(full.stats.today_budget_ratio * 100) + " % du budget"
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                font.weight: Font.DemiBold
+                color: plasmoidItem.stateColor(full.todayState)
+            }
+            Item {
+                Layout.fillWidth: true
+            }
+            QQC.Label {
+                text: full.stats.today_quota_percent.toFixed(1).replace(".", ",")
+                      + " / " + full.stats.today_budget_percent.toFixed(1).replace(".", ",")
+                      + " % du quota"
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                color: Kirigami.Theme.disabledTextColor
             }
         }
 
