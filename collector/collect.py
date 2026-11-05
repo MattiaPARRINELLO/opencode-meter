@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OpenCode Meter — collecte le quota OpenCode Go et calcule les projections.
+"""OpenCode Meter : collecte le quota OpenCode Go et calcule les projections.
 
 Sources :
   * https://opencode.ai/zen/go/v1/usage  (rolling / weekly / monthly)
@@ -656,7 +656,7 @@ def maybe_notify(payload: dict, previous: dict) -> bool:
     else:
         detail = f"{percent:.0f} % utilisé"
         projection = "Rythme encore inconnu, continue pour affiner la projection."
-    body = f"Quota mensuel OpenCode Go — {detail}\n{projection}"
+    body = f"Quota mensuel OpenCode Go : {detail}\n{projection}"
     try:
         subprocess.run(
             [
@@ -818,7 +818,7 @@ def main() -> int:
             add_today_budget(payload, stats, now)
             payload["ok"] = True
         except urllib.error.HTTPError as exc:
-            payload["error"] = f"HTTP {exc.code} — quota indisponible"
+            payload["error"] = f"HTTP {exc.code} : quota indisponible"
         except (urllib.error.URLError, TimeoutError, ValueError) as exc:
             payload["error"] = f"{type(exc).__name__}: {exc}"
 

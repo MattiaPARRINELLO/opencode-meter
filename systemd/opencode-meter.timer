@@ -1,5 +1,5 @@
 [Unit]
-Description=OpenCode Meter — rafraîchissement périodique
+Description=OpenCode Meter : rafraîchissement périodique
 
 [Timer]
 OnBootSec=2min

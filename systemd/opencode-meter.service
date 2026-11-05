@@ -1,5 +1,5 @@
 [Unit]
-Description=OpenCode Meter — collecte du quota OpenCode Go
+Description=OpenCode Meter : collecte du quota OpenCode Go
 After=network-online.target
 Wants=network-online.target
 

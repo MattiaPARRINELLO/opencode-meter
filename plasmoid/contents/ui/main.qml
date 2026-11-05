@@ -68,7 +68,7 @@ PlasmoidItem {
         if (hasTodayBudget())
             return Math.round(stats.today_budget_ratio * 100) + "%";
         if (!monthly)
-            return "—";
+            return "n/d";
         var days = Math.ceil(monthly.remaining_days);
         return Math.round(monthly.percent) + "% · " + days + "j";
     }

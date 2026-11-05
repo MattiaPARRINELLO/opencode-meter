@@ -96,7 +96,7 @@ QQC.Control {
             spacing: Kirigami.Units.largeSpacing
 
             QQC.Label {
-                text: full.monthly ? Math.round(full.monthly.percent) + "%" : "—"
+                text: full.monthly ? Math.round(full.monthly.percent) + "%" : "n/d"
                 font.pointSize: Kirigami.Theme.defaultFont.pointSize * 3
                 font.weight: Font.Bold
                 color: full.monthly ? plasmoidItem.stateColor(full.monthly.state)
@@ -197,7 +197,7 @@ QQC.Control {
                 QQC.Label {
                     text: full.monthly
                           ? full.monthly.pace_per_day.toFixed(1) + " %/j"
-                          : "—"
+                          : "n/d"
                     font.weight: Font.DemiBold
                     color: Kirigami.Theme.textColor
                 }
@@ -213,7 +213,7 @@ QQC.Control {
                 QQC.Label {
                     text: full.monthly && full.monthly.sustainable_per_day !== null
                           ? full.monthly.sustainable_per_day.toFixed(1) + " %/j"
-                          : "—"
+                          : "n/d"
                     font.weight: Font.DemiBold
                     color: Kirigami.Theme.textColor
                 }
@@ -486,7 +486,7 @@ QQC.Control {
                 QQC.Label {
                     text: full.windows[modelData]
                           ? Math.round(full.windows[modelData].percent) + "%"
-                          : "—"
+                          : "n/d"
                     font.pointSize: Kirigami.Theme.smallFont.pointSize
                     color: Kirigami.Theme.textColor
                     Layout.preferredWidth: Kirigami.Units.gridUnit * 2
@@ -562,7 +562,7 @@ QQC.Control {
         if (!m)
             return plasmoidItem.lastError || "";
         if (m.percent >= 100)
-            return i18n("Quota épuisé — reset dans %1", plasmoidItem.fmtDuration(m.reset_in_seconds));
+            return i18n("Quota épuisé, reset dans %1", plasmoidItem.fmtDuration(m.reset_in_seconds));
         if (m.saturation_in_days !== null && m.saturation_in_days < m.remaining_days - 1) {
             return i18n("Limite atteinte dans %1 j, avant le reset (dans %2 j).",
                         Math.floor(m.saturation_in_days), Math.floor(m.remaining_days));
