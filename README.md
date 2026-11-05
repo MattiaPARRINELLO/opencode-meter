@@ -1,93 +1,112 @@
 # OpenCode Meter
 
-Widget KDE Plasma qui suit le **quota OpenCode Go** (fenêtres 5 h / semaine / mois)
-et projette ton rythme de consommation pour t'aider à tenir jusqu'au reset.
+Widget KDE Plasma 6 pour suivre ton quota **OpenCode Go** et tenir jusqu'au reset.
 
-Dans le panneau : `9%` — la part du **budget du jour** déjà consommée
-(100 % = pile dans les temps ; plus = tu brûles plus vite que ton budget).
-La couleur suit ce ratio. Clic → détail.
+La pilule du panneau affiche la part du **budget du jour** déjà consommée. Un clic
+ouvre le détail : quota mensuel, projection de fin de mois, répartition par modèle
+et par projet, profil hebdomadaire.
 
-## Ce que montre le popup
+![Pilule dans le panneau](docs/panel.png)
 
-- jauge du quota mensuel avec un repère de temps écoulé
-- **aujourd'hui** : `9 % du budget` et le détail `0,3 / 3,6 % du quota`
-- ton rythme réel (`%/jour`) face au rythme soutenable
-- ratio `0.91×` : au-dessous de 1, tu tiens ; au-dessus, tu vas saturer
-- projection : « à ce rythme, 92 % au reset » ou « quota épuisé dans X jours »
-- **où part le quota** sur 30 j : bascule Modèles / Projets (part de tokens)
-- **habitude du jour** : tokens consommés aujourd'hui face à ta moyenne des 7 jours
-- **profil hebdomadaire** : consommation moyenne par jour (D→S), jours actifs par semaine,
-  écart week-end — et la projection en tient compte
-- courbe 14 jours (construite à partir des relevés locaux)
-- fenêtres 5 h et semaine en secondaire
+![Popup du widget](docs/popup.png)
 
-## Architecture
+## Ce que ça fait
 
-```
-opencode-meter.timer (systemd --user, 10 min)
-    └─ collect.py
-         ├─ GET https://opencode.ai/zen/go/v1/usage   (quota réel)
-         ├─ ~/.local/share/opencode/opencode.db      (tokens locaux, lecture seule)
-         ├─ ~/.cache/opencode-meter/usage.json       (lu par le widget)
-         └─ ~/.cache/opencode-meter/history.sqlite   (snapshots, courbe)
-```
+- **Pilule** : `9%` = part du budget du jour utilisée. `100 %` signifie que tu es
+  pile dans les temps. Vert sous 90 %, ambre de 90 à 115 %, rouge au-delà.
+- **Quota réel** : interroge l'API OpenCode Go (fenêtres 5 h, semaine, mois) avec
+  les vrais pourcentages et les vrais resets.
+- **Budget du jour** : le quota restant est réparti sur les jours qui restent, en
+  tenant compte de tes habitudes (semaine plus chargée que le week-end).
+- **Projection** : estime le pourcentage atteint au reset, ou la date de saturation
+  si ton rythme actuel ne tient pas.
+- **Où part le quota** : répartition des tokens sur 30 jours, par modèle ou par
+  projet (les worktrees T3 sont regroupés avec leur projet).
+- **Profil** : consommation moyenne par jour de semaine, nombre de jours actifs,
+  écart week-end.
+- **Notifications** : une alerte KDE par jour maximum si ton rythme dépasse le
+  budget soutenable.
+- **CLI** : `opencode-meter` affiche les mêmes données dans le terminal.
 
-La clé API est lue depuis `~/.local/share/opencode/account.json` (compte `opencode-go`).
-Elle n'est jamais écrite dans un log ni dans `usage.json`.
+## Prérequis
+
+- KDE Plasma 6 (testé sur 6.8, Wayland)
+- Python 3.11 ou plus
+- `systemd --user`, `kpackagetool6`, `notify-send`
+- OpenCode configuré avec un compte `opencode-go`
+  (clé dans `~/.local/share/opencode/account.json`)
 
 ## Installation
 
 ```bash
+git clone https://github.com/MattiaPARRINELLO/opencode-meter.git
+cd opencode-meter
 ./install.sh
 ```
 
-Le script installe le collecteur dans `~/.local/lib/opencode-meter`, crée
-`~/.local/bin/opencode-meter`, active le timer systemd et installe le plasmoid
-(`kpackagetool6`). Il ne reste qu'à ajouter « OpenCode Meter » au panneau :
-clic droit sur le panneau → *Ajouter des widgets*.
+Le script installe le collecteur dans `~/.local/lib/opencode-meter`, crée la
+commande `~/.local/bin/opencode-meter`, active un timer systemd utilisateur
+(relevé toutes les 10 minutes) et installe le plasmoid.
 
-## CLI
+Pour finir : clic droit sur le panneau, **Ajouter des widgets**, puis
+**OpenCode Meter**.
+
+## Utilisation
 
 ```bash
 opencode-meter            # tableau lisible
 opencode-meter --json     # JSON complet
-opencode-meter --notify   # idem + notification si dépassement (1×/jour)
+opencode-meter --notify   # relevé + notification éventuelle
 ```
 
-## Comment la projection est calculée
+Le widget se rafraîchit seul. Le bouton **Rafraîchir** du popup force un relevé
+immédiat.
+
+## Comment le calcul fonctionne
 
 | Grandeur | Formule |
 |---|---|
-| rythme observé | Δ% entre deux snapshots de la fenêtre courante (si ≥ 6 h d'historique) |
-| rythme moyen | `% consommé ÷ jours écoulés` (début de fenêtre déduit du reset) |
-| rythme soutenable | `(100 − % consommé) ÷ jours restants` |
-| ratio | `rythme ÷ soutenable` |
-| projection | `% consommé + rythme × jours restants` |
-| habitude | `tokens du jour ÷ moyenne des 7 jours précédents` |
-| profil | moyenne de tokens par jour de semaine sur 28 jours, normalisée (1 = journée moyenne) |
-| projection pondérée | `% consommé ÷ jours pondérés écoulés × jours pondérés restants` |
-| budget du jour | `% du quota restant ÷ jours pondérés restants × facteur du jour` |
-| conso du jour | `tokens opencode-go du jour × (% consommé ÷ tokens de la fenêtre)` |
-| ratio du jour | `conso du jour ÷ budget du jour` |
+| rythme observé | écart de pourcentage entre deux relevés de la fenêtre courante (si au moins 6 h d'historique) |
+| rythme moyen | pourcentage consommé divisé par les jours écoulés |
+| rythme soutenable | pourcentage restant divisé par les jours restants |
+| profil hebdomadaire | moyenne de tokens par jour de semaine sur 28 jours, normalisée (1 = journée moyenne) |
+| projection pondérée | pourcentage consommé divisé par les jours pondérés écoulés, multiplié par les jours pondérés restants |
+| budget du jour | pourcentage restant divisé par les jours pondérés restants, multiplié par le facteur du jour |
+| consommation du jour | tokens OpenCode Go du jour multipliés par le ratio pourcentage/tokens de la fenêtre |
+| ratio du jour | consommation du jour divisée par le budget du jour |
 
-Le début de fenêtre est déduit du reset : −5 h (5 h), −7 j (semaine),
-−1 mois calendaire (mois). Sous 5 h restantes, le rythme soutenable n'est pas
-affiché (il tend vers l'infini).
+Le début de chaque fenêtre est déduit du reset : moins 5 h pour la fenêtre 5 h,
+moins 7 jours pour la semaine, moins un mois calendaire pour le mois. Sous 5 h
+restantes, le rythme soutenable n'est pas affiché (il tend vers l'infini).
 
-Quand 14 jours de données locales existent, la projection n'est plus linéaire : chaque
-jour restant est pondéré par le profil hebdomadaire (un samedi creux compte moins qu'un
-mardi chargé). Le champ `projection_source` passe alors à `"habitudes"`.
+Quand 14 jours de données locales existent, la projection n'est plus linéaire :
+chaque jour restant est pondéré par ton profil (un samedi creux compte moins qu'un
+mardi chargé). Le champ `projection_source` passe alors à `habitudes`.
 
-Couleurs : vert `< 90 %` projeté, ambre `≥ 90 %`, rouge `≥ 100 %` ou quota épuisé.
+## Données et vie privée
+
+Tout reste en local :
+
+```
+~/.cache/opencode-meter/usage.json       état lu par le widget
+~/.cache/opencode-meter/history.sqlite   relevés, pour la courbe
+~/.local/share/opencode/opencode.db      lu en lecture seule (tokens)
+```
+
+La clé API est lue depuis `account.json` (ou `OPENCODE_GO_API_KEY` si définie).
+Elle n'est jamais écrite dans un log ni recopiée dans `usage.json`.
+
+Seule requête réseau : un `GET https://opencode.ai/zen/go/v1/usage` toutes les
+10 minutes, avec la clé en en-tête Authorization.
 
 ## Limites connues
 
-- L'API ne fournit pas d'historique : la courbe se remplit à partir du premier relevé
-  (affichée après 3 jours de données).
-- Le quota est en pourcentage, pas en tokens ; les tokens locaux servent d'indicateur
-  d'activité, pas de conversion.
-- L'endpoint `opencode.ai/zen/go/v1/usage` n'est pas documenté publiquement : si
-  OpenCode le change, le widget affiche l'erreur et conserve les dernières données.
+- L'API de quota ne fournit pas d'historique : la courbe se remplit à partir du
+  premier relevé (affichée après 3 jours de données).
+- Le quota est exprimé en pourcentage, pas en tokens. Les tokens locaux servent
+  d'indicateur d'activité et de base aux projections, pas de conversion exacte.
+- L'endpoint `opencode.ai/zen/go/v1/usage` n'est pas documenté publiquement. S'il
+  change, le widget affiche l'erreur et conserve les dernières données connues.
 
 ## Désinstallation
 
@@ -95,13 +114,14 @@ Couleurs : vert `< 90 %` projeté, ambre `≥ 90 %`, rouge `≥ 100 %` ou quota 
 ./uninstall.sh
 ```
 
-Les données restent dans `~/.cache/opencode-meter` (supprime le dossier pour tout effacer).
+Les données restent dans `~/.cache/opencode-meter`. Supprime le dossier pour tout
+effacer.
 
 ## Licence
 
-MIT — voir [LICENSE](LICENSE).
+MIT, voir [LICENSE](LICENSE).
 
 ## Crédits
 
-Code écrit par un assistant IA (OpenCode, DeepSeek V4.1 Flash), testé et validé
-sur la machine de l'auteur.
+Code écrit par un assistant IA (OpenCode, DeepSeek V4.1 Flash), testé et validé sur
+la machine de l'auteur.
