@@ -2,7 +2,7 @@
     "KPlugin": {
         "Authors": [
             {
-                "Name": "Mattia"
+                "Name": "Mattia Parrinello"
             }
         ],
         "Category": "System Information",
@@ -12,7 +12,7 @@
         "License": "MIT",
         "Name": "OpenCode Meter",
         "Version": "1.0.0",
-        "Website": "https://github.com/mattia/opencode-meter"
+        "Website": "https://github.com/MattiaPARRINELLO/opencode-meter"
     },
     "KPackageStructure": "Plasma/Applet",
     "X-Plasma-API-Minimum-Version": "6.0"

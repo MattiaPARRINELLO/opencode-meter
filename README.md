@@ -96,3 +96,12 @@ Couleurs : vert `< 90 %` projeté, ambre `≥ 90 %`, rouge `≥ 100 %` ou quota 
 ```
 
 Les données restent dans `~/.cache/opencode-meter` (supprime le dossier pour tout effacer).
+
+## Licence
+
+MIT — voir [LICENSE](LICENSE).
+
+## Crédits
+
+Code écrit par un assistant IA (OpenCode, DeepSeek V4.1 Flash), testé et validé
+sur la machine de l'auteur.
