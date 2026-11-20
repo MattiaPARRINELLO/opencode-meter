@@ -351,23 +351,43 @@ def window_snapshots(
 
 
 def daily_series(db: sqlite3.Connection, name: str, days: int = 14) -> list[dict]:
-    """Max de % atteint par jour, jours manquants à zéro."""
-    now = datetime.now(timezone.utc)
+    """Variation du pourcentage de quota par jour.
+
+    `percent` = ce que la journée a consommé (fin de journée moins fin de la
+    veille), et non le niveau absolu atteint. Un reset de quota remet le
+    compteur à zéro : la journée repart de sa propre consommation.
+    """
+    now = datetime.now().astimezone()
     start = (now - timedelta(days=days - 1)).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
+    # Un jour de marge avant la fenêtre pour calculer la première variation.
+    since = start - timedelta(days=1)
     rows = db.execute(
         "SELECT ts, percent FROM snapshots WHERE window=? AND ts>=? ORDER BY ts",
-        (name, int(start.timestamp())),
+        (name, int(since.timestamp())),
     ).fetchall()
     by_day: dict[str, float] = {}
     for ts, pct in rows:
-        day = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
+        day = datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
         by_day[day] = max(by_day.get(day, 0.0), float(pct))
+
     series = []
+    previous = by_day.get((start - timedelta(days=1)).strftime("%Y-%m-%d"))
     for i in range(days):
         day = (start + timedelta(days=i)).strftime("%Y-%m-%d")
-        series.append({"date": day, "percent": round(by_day.get(day, 0.0), 1)})
+        current = by_day.get(day)
+        if current is None:
+            delta = 0.0
+        elif previous is None:
+            delta = current
+        elif current >= previous:
+            delta = current - previous
+        else:
+            delta = current  # nouveau mois : le quota est reparti de zéro
+        series.append({"date": day, "percent": round(delta, 1)})
+        if current is not None:
+            previous = current
     return series
 
 
