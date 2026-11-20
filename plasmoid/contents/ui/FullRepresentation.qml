@@ -321,7 +321,7 @@ QQC.Control {
         QQC.Label {
             Layout.fillWidth: true
             visible: full.hasSeries
-            text: i18n("Quota mensuel, 14 derniers jours")
+            text: i18n("Utilisation du quota mensuel, 14 derniers jours")
             font.pointSize: Kirigami.Theme.smallFont.pointSize
             color: Kirigami.Theme.disabledTextColor
         }
