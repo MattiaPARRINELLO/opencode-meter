@@ -70,6 +70,15 @@ QQC.Control {
         return days >= 3;
     }
 
+    // Chaque barre est une consommation journalière : on l'échelle sur la plus
+    // grosse journée de la période, pas sur 100 % du quota.
+    readonly property real seriesMax: {
+        var best = 0;
+        for (var i = 0; i < series.length; ++i)
+            best = Math.max(best, series[i].percent);
+        return best > 0 ? best : 1;
+    }
+
     readonly property color trackColor: Qt.rgba(Kirigami.Theme.textColor.r,
                                                Kirigami.Theme.textColor.g,
                                                Kirigami.Theme.textColor.b, 0.16)
@@ -305,14 +314,12 @@ QQC.Control {
                             anchors.bottom: parent.bottom
                             width: parent.width
                             height: modelData.percent > 0
-                                    ? Math.max(2, parent.height * Math.min(modelData.percent / 100, 1))
+                                    ? Math.max(2, parent.height * Math.min(modelData.percent / full.seriesMax, 1))
                                     : 0
                             radius: 1
-                            color: modelData.percent >= 100
-                                   ? Kirigami.Theme.negativeTextColor
-                                   : Qt.rgba(Kirigami.Theme.textColor.r,
-                                             Kirigami.Theme.textColor.g,
-                                             Kirigami.Theme.textColor.b, 0.45)
+                            color: Qt.rgba(Kirigami.Theme.textColor.r,
+                                           Kirigami.Theme.textColor.g,
+                                           Kirigami.Theme.textColor.b, 0.45)
                         }
                     }
                 }
@@ -321,7 +328,7 @@ QQC.Control {
         QQC.Label {
             Layout.fillWidth: true
             visible: full.hasSeries
-            text: i18n("Utilisation du quota mensuel, 14 derniers jours")
+            text: i18n("Utilisation du quota par jour, 14 derniers jours")
             font.pointSize: Kirigami.Theme.smallFont.pointSize
             color: Kirigami.Theme.disabledTextColor
         }
