@@ -12,20 +12,23 @@ et par projet, profil hebdomadaire.
 
 ## Ce que ça fait
 
-- **Pilule** : `9%` = part du budget du jour utilisée. `100 %` signifie que tu es
-  pile dans les temps. Vert sous 90 %, ambre de 90 à 115 %, rouge au-delà.
+- **Pilule** : `64 %` = part du budget du jour utilisée. `100 %` signifie que tu es
+  pile dans les temps. Vert jusqu'à 100 %, ambre de 100 à 125 %, rouge au-delà :
+  tant que le budget du jour est respecté, rien ne passe en alerte.
 - **Quota réel** : interroge l'API OpenCode Go (fenêtres 5 h, semaine, mois) avec
   les vrais pourcentages et les vrais resets.
 - **Budget du jour** : le quota restant est réparti sur les jours qui restent, en
-  tenant compte de tes habitudes (semaine plus chargée que le week-end).
-- **Projection** : estime le pourcentage atteint au reset, ou la date de saturation
-  si ton rythme actuel ne tient pas.
+  tenant compte de tes habitudes (semaine plus chargée que le week-end). Un
+  dépassement n'est pas ponctionné d'un coup : il se rattrape par petites touches
+  sur tous les jours restants, et le coût par jour est affiché.
+- **Projection** : informative seulement (pourcentage au reset, date de
+  saturation). Elle n'allume aucune alerte si le budget du jour est tenu.
 - **Où part le quota** : répartition des tokens sur 30 jours, par modèle ou par
   projet (les worktrees T3 sont regroupés avec leur projet).
 - **Profil** : consommation moyenne par jour de semaine, nombre de jours actifs,
   écart week-end.
-- **Notifications** : une alerte KDE par jour maximum si ton rythme dépasse le
-  budget soutenable.
+- **Notifications** : une alerte KDE par jour maximum, uniquement si le budget du
+  jour est dépassé (ou le quota épuisé).
 - **CLI** : `opencode-meter` affiche les mêmes données dans le terminal.
 
 ## Prérequis

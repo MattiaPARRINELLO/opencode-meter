@@ -36,9 +36,10 @@ USAGE_JSON = CACHE_DIR / "usage.json"
 OPENCODE_ACCOUNT = HOME / ".local/share/opencode/account.json"
 OPENCODE_DB = HOME / ".local/share/opencode/opencode.db"
 
-# Rythme au-delà duquel on prévient (ratio rythme réel / rythme soutenable).
-NOTIFY_RATIO = 1.0
-NOTIFY_PERCENT = 85.0
+# Budget du jour : 100 % = pile dans les temps. Tant qu'il est respecté, le
+# quota tient jusqu'au reset : seul un dépassement du budget du jour alerte.
+TODAY_WARN_RATIO = 1.0
+TODAY_OVER_RATIO = 1.25
 
 
 # --------------------------------------------------------------------------
@@ -139,6 +140,17 @@ def ratio_state(ratio: float | None, percent: float) -> str:
     return "ok"
 
 
+def today_budget_state(ratio: float | None) -> str:
+    """État du budget du jour : aucune alerte tant qu'il est respecté."""
+    if ratio is None:
+        return "ok"
+    if ratio > TODAY_OVER_RATIO:
+        return "over"
+    if ratio > TODAY_WARN_RATIO:
+        return "warn"
+    return "ok"
+
+
 def observed_pace(rows: list[tuple[int, float]]) -> float | None:
     """Rythme %/jour observé sur les snapshots de la fenêtre courante.
 
@@ -217,8 +229,7 @@ def build_window(name: str, raw: dict, now: datetime, snapshots: list) -> dict:
 
 
 def _next_midnight(moment: datetime) -> datetime:
-    return (moment.replace(hour=0, minute=0, second=0, microsecond=0)
-            + timedelta(days=1))
+    return moment.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
 
 
 def weighted_units(start: datetime, end: datetime, factors: list[float]) -> float:
@@ -235,8 +246,13 @@ def weighted_units(start: datetime, end: datetime, factors: list[float]) -> floa
     return total
 
 
-def saturation_days(percent: float, now: datetime, reset: datetime,
-                    factors: list[float], rate_per_unit: float) -> float | None:
+def saturation_days(
+    percent: float,
+    now: datetime,
+    reset: datetime,
+    factors: list[float],
+    rate_per_unit: float,
+) -> float | None:
     """Jours avant d'atteindre 100 %, en suivant le profil hebdomadaire."""
     remaining = 100.0 - percent
     if remaining <= 0:
@@ -277,7 +293,9 @@ def apply_activity_profile(window: dict, stats: dict, now: datetime) -> None:
     window["projected_percent"] = round(min(projected, 999.0), 1)
     window["projection_source"] = "habitudes"
     saturation = saturation_days(window["percent"], now_local, reset, factors, rate)
-    window["saturation_in_days"] = round(saturation, 1) if saturation is not None else None
+    window["saturation_in_days"] = (
+        round(saturation, 1) if saturation is not None else None
+    )
     # La couleur suit la projection, pas le pourcentage brut.
     if window["percent"] >= 100:
         window["state"] = "exhausted"
@@ -551,7 +569,12 @@ def local_stats(days: int = 28, month_days: int = 30, chart_days: int = 14) -> d
 
 
 def add_today_budget(payload: dict, stats: dict, now: datetime) -> None:
-    """Part du budget du jour déjà consommée (100 % = pile dans les temps)."""
+    """Part du budget du jour déjà consommée (100 % = pile dans les temps).
+
+    Le budget du jour est la référence : le quota restant est réparti sur les
+    jours qui restent, donc un dépassement se rattrape par petites touches au
+    lieu d'être ponctionné d'un coup le lendemain.
+    """
     window = payload["windows"].get("monthly")
     if not window:
         return
@@ -566,7 +589,9 @@ def add_today_budget(payload: dict, stats: dict, now: datetime) -> None:
     if remaining_units <= 0.1:
         return
     today_dow = (now_local.weekday() + 1) % 7
-    budget_today = window["remaining_percent"] / remaining_units * factors[today_dow]
+    # Pourcentage non arrondi : le budget du jour reste juste au centième.
+    remaining_percent = max(100.0 - window["percent"], 0.0)
+    budget_today = remaining_percent / remaining_units * factors[today_dow]
     if budget_today <= 0:
         return
 
@@ -592,10 +617,26 @@ def add_today_budget(payload: dict, stats: dict, now: datetime) -> None:
         used_today = max(window["percent"] - float(row[0]), 0.0)
 
     ratio = used_today / budget_today
+    overspend = max(used_today - budget_today, 0.0)
+    # Le dépassement est déjà étalé sur tout le reste du mois : on l'annonce
+    # par jour pour que le coût réel se voie, et il reste minime.
+    catchup_days = max(int(round(window.get("remaining_days") or 0)), 1)
     stats["today_quota_percent"] = round(used_today, 2)
     stats["today_budget_percent"] = round(budget_today, 2)
     stats["today_budget_ratio"] = round(ratio, 3)
+    stats["today_budget_state"] = today_budget_state(ratio)
+    stats["today_budget_left_percent"] = round(max(budget_today - used_today, 0.0), 2)
+    stats["today_overspend_percent"] = round(overspend, 2)
+    stats["today_catchup_days"] = catchup_days
+    stats["today_catchup_per_day"] = round(overspend / catchup_days, 3)
     stats["today_budget_source"] = source
+
+    # La couleur du quota suit le budget du jour, pas une projection qui
+    # extrapole les erreurs passées : respecter le budget du jour suffit.
+    if window["percent"] >= 100:
+        window["state"] = "exhausted"
+    else:
+        window["state"] = stats["today_budget_state"]
 
 
 # --------------------------------------------------------------------------
@@ -607,27 +648,38 @@ def maybe_notify(payload: dict, previous: dict) -> bool:
     monthly = payload["windows"].get("monthly")
     if not monthly:
         return False
-    ratio = monthly.get("ratio")
-    percent = monthly["percent"]
-    triggered = (
-        ratio is not None and ratio > NOTIFY_RATIO
-    ) or percent >= NOTIFY_PERCENT
+    stats = payload.get("stats") or {}
+    ratio = stats.get("today_budget_ratio")
+    # Seul le budget du jour déclenche une alerte : le reste n'est que du bruit.
+    triggered = (ratio is not None and ratio > TODAY_WARN_RATIO) or monthly[
+        "percent"
+    ] >= 100
 
     today = datetime.now().strftime("%Y-%m-%d")
     if not triggered or previous.get("last_date") == today:
         return False
 
-    if ratio is not None:
-        detail = (
-            f"{percent:.0f} % utilisé · rythme {monthly['pace_per_day']:.1f} %/j "
-            f"vs {monthly['sustainable_per_day'] or 0:.1f} %/j soutenable"
+    if monthly["percent"] >= 100:
+        title = "OpenCode Meter : quota épuisé"
+        body = (
+            f"Quota mensuel épuisé, reset dans "
+            f"{fmt_duration(monthly['reset_in_seconds'])}."
         )
-        projection = f"Projection : {monthly['projected_percent']:.0f} % au reset."
     else:
-        detail = f"{percent:.0f} % utilisé"
-        projection = "Rythme encore inconnu, continue pour affiner la projection."
-    body = f"Quota mensuel OpenCode Go : {detail}\n{projection}"
-    if not send_notification("OpenCode Meter : attention au quota", body):
+        title = "OpenCode Meter : budget du jour dépassé"
+        body = (
+            f"{stats['today_quota_percent']:.1f} % du quota utilisés aujourd'hui "
+            f"pour un budget de {stats['today_budget_percent']:.1f} % "
+            f"({ratio * 100:.0f} % du budget du jour).\n"
+        )
+        if stats.get("today_catchup_per_day"):
+            body += (
+                f"Rattrapage lissé sur {stats['today_catchup_days']} j : "
+                f"{stats['today_catchup_per_day']:.2f} %/j, sans blocage."
+            )
+        else:
+            body += "Le quota restant se répartit sur les jours qui restent."
+    if not send_notification(title, body):
         return False
     payload.setdefault("notify", {})["last_date"] = today
     return True
@@ -638,11 +690,23 @@ def send_notification(title: str, body: str) -> bool:
     icon = "office-chart-bar"
     attempts = [
         [
-            "gdbus", "call", "--session",
-            "--dest", "org.freedesktop.Notifications",
-            "--object-path", "/org/freedesktop/Notifications",
-            "--method", "org.freedesktop.Notifications.Notify",
-            "OpenCode Meter", "0", icon, title, body, "[]", "{}", "8000",
+            "gdbus",
+            "call",
+            "--session",
+            "--dest",
+            "org.freedesktop.Notifications",
+            "--object-path",
+            "/org/freedesktop/Notifications",
+            "--method",
+            "org.freedesktop.Notifications.Notify",
+            "OpenCode Meter",
+            "0",
+            icon,
+            title,
+            body,
+            "[]",
+            "{}",
+            "8000",
         ],
         ["kdialog", "--title", "OpenCode Meter", "--passivepopup", body, "10"],
         ["notify-send", "-a", "OpenCode Meter", "-i", icon, title, body],
@@ -727,10 +791,19 @@ def print_human(payload: dict) -> None:
             habit += f" · week-end {stats['weekend_ratio'] * 100:+.0f} %"
         print(f"{habit}{reset}")
     if stats.get("today_budget_ratio") is not None:
-        print(
-            f"  {dim}aujourd'hui : {stats['today_budget_ratio'] * 100:.0f} % du budget du jour "
-            f"({stats['today_quota_percent']:.1f} / {stats['today_budget_percent']:.1f} % du quota){reset}"
+        state = stats.get("today_budget_state", "ok")
+        line = (
+            f"  {colors.get(state, '')}aujourd'hui : "
+            f"{stats['today_budget_ratio'] * 100:.0f} % du budget du jour{reset} "
+            f"{dim}({stats['today_quota_percent']:.1f} / "
+            f"{stats['today_budget_percent']:.1f} % du quota"
         )
+        if stats.get("today_catchup_per_day"):
+            line += (
+                f" · dépassement lissé sur {stats['today_catchup_days']} j "
+                f"({stats['today_catchup_per_day']:.2f} %/j)"
+            )
+        print(f"{line}){reset}")
     if stats.get("today_tokens"):
         line = f"  {dim}aujourd'hui : {stats['today_tokens']:,} tokens"
         if stats.get("habit_ratio") is not None:
@@ -807,7 +880,9 @@ def main() -> int:
     if args.notify:
         try:
             maybe_notify(payload, previous)
-        except Exception as exc:  # une notification ne doit jamais faire échouer le relevé
+        except (
+            Exception
+        ) as exc:  # une notification ne doit jamais faire échouer le relevé
             print(f"notification: {type(exc).__name__}: {exc}", file=sys.stderr)
 
     USAGE_JSON.write_text(json.dumps(payload, ensure_ascii=False, indent=1))
