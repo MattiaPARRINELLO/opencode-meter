@@ -60,10 +60,14 @@ Item {
                 return compact.plasmoidItem.lastError || "Chargement…";
             if (compact.plasmoidItem.hasTodayBudget()) {
                 var s = compact.plasmoidItem.stats;
-                return "Aujourd'hui : " + Math.round(s.today_budget_ratio * 100) + " % du budget du jour"
+                var tip = "Aujourd'hui : " + Math.round(s.today_budget_ratio * 100) + " % du budget du jour"
                      + "\n" + s.today_quota_percent.toFixed(1).replace(".", ",") + " % du quota"
-                     + " (" + s.today_budget_percent.toFixed(1).replace(".", ",") + " % disponible)"
+                     + " (budget " + s.today_budget_percent.toFixed(1).replace(".", ",") + " %)"
                      + " · reste " + Math.floor(m.remaining_days) + " j";
+                if (s.today_catchup_per_day)
+                    tip += "\nDépassement lissé sur " + s.today_catchup_days + " j ("
+                         + s.today_catchup_per_day.toFixed(2).replace(".", ",") + " %/j)";
+                return tip;
             }
             return Math.round(m.percent) + " % du quota mensuel · reste "
                  + compact.plasmoidItem.fmtDuration(m.reset_in_seconds);

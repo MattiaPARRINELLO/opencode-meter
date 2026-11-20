@@ -53,13 +53,16 @@ PlasmoidItem {
     }
 
     // État de la journée : 100 % = pile dans le budget du jour.
+    // Tant qu'il est respecté, rien ne passe en alerte.
     function pillState() {
         if (!hasTodayBudget())
             return monthly ? monthly.state : "ok";
+        if (stats.today_budget_state)
+            return stats.today_budget_state;
         var ratio = stats.today_budget_ratio;
-        if (ratio >= 1.15)
+        if (ratio > 1.25)
             return "over";
-        if (ratio >= 0.9)
+        if (ratio > 1)
             return "warn";
         return "ok";
     }

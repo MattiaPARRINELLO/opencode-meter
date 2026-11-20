@@ -23,12 +23,21 @@ QQC.Control {
 
     readonly property string todayState: {
         if (!hasToday)
-            return "ok";
-        if (stats.today_budget_ratio >= 1.15)
+            return monthly ? monthly.state : "ok";
+        if (stats.today_budget_state)
+            return stats.today_budget_state;
+        if (stats.today_budget_ratio > 1.25)
             return "over";
-        if (stats.today_budget_ratio >= 0.9)
+        if (stats.today_budget_ratio > 1)
             return "warn";
         return "ok";
+    }
+
+    // Le quota ne s'affiche en alerte que si le budget du jour est dépassé.
+    readonly property string overallState: {
+        if (monthly && monthly.percent >= 100)
+            return "exhausted";
+        return hasToday ? todayState : (monthly ? monthly.state : "ok");
     }
 
     readonly property bool hasProfile: stats.weekday !== undefined
@@ -99,7 +108,7 @@ QQC.Control {
                 text: full.monthly ? Math.round(full.monthly.percent) + "%" : "n/d"
                 font.pointSize: Kirigami.Theme.defaultFont.pointSize * 3
                 font.weight: Font.Bold
-                color: full.monthly ? plasmoidItem.stateColor(full.monthly.state)
+                color: full.monthly ? plasmoidItem.stateColor(full.overallState)
                                     : Kirigami.Theme.disabledTextColor
             }
 
@@ -135,7 +144,7 @@ QQC.Control {
                 width: full.monthly ? Math.max(4, track.width * Math.min(full.monthly.percent / 100, 1)) : 0
                 height: parent.height
                 radius: height / 2
-                color: full.monthly ? plasmoidItem.stateColor(full.monthly.state)
+                color: full.monthly ? plasmoidItem.stateColor(full.overallState)
                                     : Kirigami.Theme.disabledTextColor
             }
             // repère : là où tu *devrais* être si tu suivais le rythme soutenable
@@ -179,6 +188,19 @@ QQC.Control {
                 font.pointSize: Kirigami.Theme.smallFont.pointSize
                 color: Kirigami.Theme.disabledTextColor
             }
+        }
+
+        // ---------- dépassement lissé ----------
+        QQC.Label {
+            Layout.fillWidth: true
+            visible: full.hasToday && full.stats.today_overspend_percent > 0
+            text: i18n("+%1 % du quota, lissé sur %2 j (%3 %/j).",
+                       full.stats.today_overspend_percent.toFixed(2).replace(".", ","),
+                       full.stats.today_catchup_days,
+                       (full.stats.today_catchup_per_day || 0).toFixed(2).replace(".", ","))
+            wrapMode: Text.WordWrap
+            font.pointSize: Kirigami.Theme.smallFont.pointSize
+            color: Kirigami.Theme.disabledTextColor
         }
 
         // ---------- rythme ----------
@@ -226,9 +248,7 @@ QQC.Control {
                 implicitWidth: ratioLabel.implicitWidth + Kirigami.Units.smallSpacing * 2
                 implicitHeight: ratioLabel.implicitHeight + Kirigami.Units.smallSpacing
                 radius: height / 2
-                color: Qt.rgba(plasmoidItem.stateColor(full.monthly ? full.monthly.state : "ok").r,
-                               plasmoidItem.stateColor(full.monthly ? full.monthly.state : "ok").g,
-                               plasmoidItem.stateColor(full.monthly ? full.monthly.state : "ok").b, 0.18)
+                color: full.trackColor
                 QQC.Label {
                     id: ratioLabel
                     anchors.centerIn: parent
@@ -236,8 +256,7 @@ QQC.Control {
                           ? full.monthly.ratio.toFixed(2) + "×"
                           : ""
                     font.weight: Font.DemiBold
-                    color: full.monthly ? plasmoidItem.stateColor(full.monthly.state)
-                                        : Kirigami.Theme.textColor
+                    color: Kirigami.Theme.textColor
                 }
             }
         }
@@ -248,7 +267,7 @@ QQC.Control {
             Layout.topMargin: Kirigami.Units.smallSpacing
             text: full.projectionText()
             wrapMode: Text.WordWrap
-            color: full.monthly ? plasmoidItem.stateColor(full.monthly.state)
+            color: full.monthly ? plasmoidItem.stateColor(full.overallState)
                                 : Kirigami.Theme.disabledTextColor
             font.pointSize: Kirigami.Theme.smallFont.pointSize
         }
@@ -563,6 +582,14 @@ QQC.Control {
             return plasmoidItem.lastError || "";
         if (m.percent >= 100)
             return i18n("Quota épuisé, reset dans %1", plasmoidItem.fmtDuration(m.reset_in_seconds));
+        var s = full.stats;
+        if (s.today_budget_ratio !== undefined && s.today_budget_ratio !== null) {
+            if (s.today_budget_ratio <= 1)
+                return i18n("Dans les temps : budget du jour respecté, tu tiens jusqu'au reset.");
+            return i18n("Dépassement de %1 % du budget du jour, rattrapé en douceur sur %2 j.",
+                        Math.round((s.today_budget_ratio - 1) * 100),
+                        s.today_catchup_days || 1);
+        }
         if (m.saturation_in_days !== null && m.saturation_in_days < m.remaining_days - 1) {
             return i18n("Limite atteinte dans %1 j, avant le reset (dans %2 j).",
                         Math.floor(m.saturation_in_days), Math.floor(m.remaining_days));
