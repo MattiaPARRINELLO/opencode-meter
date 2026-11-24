@@ -1,8 +1,6 @@
 """Tests unitaires des fonctions pures du collecteur."""
 
-from datetime import datetime, timedelta, timezone
-
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
 
 from collector.collect import (
     HOME,
@@ -21,22 +19,22 @@ from collector.collect import (
 def test_parse_iso_utc_handles_z_and_naive():
     dt = parse_iso_utc("2026-01-15T12:00:00Z")
     assert dt.tzinfo is not None
-    assert dt == datetime(2026, 1, 15, 12, 0, tzinfo=timezone.utc)
+    assert dt == datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
     naive = parse_iso_utc("2026-01-15T12:00:00")
-    assert naive.tzinfo == timezone.utc
+    assert naive.tzinfo == UTC
 
 
 def test_minus_one_month_clamps_day():
-    dt = datetime(2026, 3, 31, tzinfo=timezone.utc)
+    dt = datetime(2026, 3, 31, tzinfo=UTC)
     out = minus_one_month(dt)
     assert out.month == 2
     assert out.day == 28  # 2026 not leap
-    jan = minus_one_month(datetime(2026, 1, 15, tzinfo=timezone.utc))
+    jan = minus_one_month(datetime(2026, 1, 15, tzinfo=UTC))
     assert jan.month == 12 and jan.year == 2025
 
 
 def test_window_start():
-    reset = datetime(2026, 2, 10, 12, 0, tzinfo=timezone.utc)
+    reset = datetime(2026, 2, 10, 12, 0, tzinfo=UTC)
     assert window_start("rolling", reset) == reset - timedelta(hours=5)
     assert window_start("weekly", reset) == reset - timedelta(days=7)
     assert window_start("monthly", reset).month == 1
@@ -67,13 +65,13 @@ def test_observed_pace_requires_span_and_delta():
 
 
 def test_weighted_units_zero_or_negative_span():
-    now = datetime(2026, 2, 1, tzinfo=timezone.utc)
+    now = datetime(2026, 2, 1, tzinfo=UTC)
     assert weighted_units(now, now, [1.0] * 7) == 0.0
     assert weighted_units(now, now - timedelta(days=1), [1.0] * 7) == 0.0
 
 
 def test_weighted_units_full_week_is_sum_of_factors():
-    start = datetime(2026, 2, 2, tzinfo=timezone.utc)  # monday
+    start = datetime(2026, 2, 2, tzinfo=UTC)  # monday
     end = start + timedelta(days=7)
     factors = [1.0] * 7
     assert abs(weighted_units(start, end, factors) - 7.0) < 1e-9
