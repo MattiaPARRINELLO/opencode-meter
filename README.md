@@ -88,6 +88,32 @@ opencode-meter --notify   # relevé + notification éventuelle
 Le widget se rafraîchit seul. Le bouton **Rafraîchir** du popup force un relevé
 immédiat.
 
+## Source vérifiée (go/status)
+
+Par défaut, le collecteur interroge `opencode.ai/zen/go/v1/usage` (pourcentages).
+Si tu configures les cookies de session Console, il utilise en priorité
+`opencode.ai/console/api/go/status`, qui donne les **coûts exacts en microcents**
+(utilisé/limite) et calibre le pourcentage avec la vraie valeur.
+
+Configuration (une fois) :
+
+```bash
+opencode-meter --setup-cookies
+```
+
+Les cookies sont stockés dans `~/.cache/opencode-meter/console_cookies.json`
+(mode 0600). Tu peux aussi les fournir via les variables d'environnement
+`OPENCODE_CONSOLE_COOKIE` et `OPENCODE_CONSOLE_ORG`.
+
+Sans cookies, le comportement reste celui de l'API usage (pourcentages), identique
+aux meters officiels.
+
+## Modèles gratuits
+
+Les modèles suffixés `-free` (beam-free, hungerg-free, …) ne coûtent rien et ne
+comptent pas dans le quota OpenCode Go. Le collecteur les exclut de tous les
+calculs de consommation (tokens, modèles, projets, budget du jour).
+
 ## Comment le calcul fonctionne
 
 | Grandeur | Formule |
@@ -123,7 +149,9 @@ La clé API est lue depuis `account.json` (ou `OPENCODE_GO_API_KEY` si définie)
 Elle n'est jamais écrite dans un log ni recopiée dans `usage.json`.
 
 Seule requête réseau : un `GET https://opencode.ai/zen/go/v1/usage` toutes les
-10 minutes, avec la clé en en-tête Authorization.
+10 minutes, avec la clé en en-tête Authorization. Si les cookies Console sont
+configurés, un `GET https://opencode.ai/console/api/go/status` est aussi fait
+pour calibrer avec les coûts exacts.
 
 ## Limites connues
 
