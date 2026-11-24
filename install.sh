@@ -49,4 +49,6 @@ fi
 say "Terminé."
 printf 'CLI     : %s\n' "$BIN"
 printf 'Données : %s/usage.json\n' "$CACHE_DIR"
+printf '\nPour calibrer avec les coûts exacts (optionnel) :\n'
+printf '  %s --setup-cookies\n' "$BIN"
 printf 'Widget  : ajoute « OpenCode Meter » à ton panneau (clic droit sur le panneau → Ajouter des widgets).\n'
