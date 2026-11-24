@@ -1,0 +1,1 @@
+"""OpenCode Meter collector package."""

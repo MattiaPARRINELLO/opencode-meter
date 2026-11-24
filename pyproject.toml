@@ -1,0 +1,22 @@
+[project]
+name = "opencode-meter"
+version = "1.0.0"
+description = "KDE Plasma widget that tracks your OpenCode Go quota and projects your daily budget."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+authors = [{ name = "Mattia Parrinello" }]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["collector", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "BLE", "TRY", "RUF", "FURB", "SIM"]
+ignore = ["E501", "TRY003", "RUF001"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
