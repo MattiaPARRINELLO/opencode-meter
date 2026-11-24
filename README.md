@@ -69,6 +69,14 @@ commande `~/.local/bin/opencode-meter`, active un timer systemd utilisateur
 Pour finir : clic droit sur le panneau, **Ajouter des widgets**, puis
 **OpenCode Meter**.
 
+## Distribution
+
+- **Installation recommandée** : `./install.sh` (collecteur, timer systemd, plasmoid).
+- **Archive `.plasmoid`** : `./scripts/package.sh` produit `dist/opencode-meter-<version>.plasmoid`,
+  utilisable pour la KDE Store. L'archive embarque les chemins standards
+  (`~/.cache/opencode-meter/usage.json`, `~/.local/bin/opencode-meter`).
+- **Désinstallation** : `./uninstall.sh`.
+
 ## Utilisation
 
 ```bash
