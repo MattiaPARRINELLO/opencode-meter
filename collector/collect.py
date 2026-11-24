@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import calendar
+import contextlib
 import json
 import os
 import shutil
@@ -51,7 +52,7 @@ def read_api_key() -> str | None:
     env = os.environ.get("OPENCODE_GO_API_KEY")
     if env:
         return env.strip()
-    try:
+    with contextlib.suppress(OSError, ValueError):
         data = json.loads(OPENCODE_ACCOUNT.read_text())
         active = data.get("active", {}).get("opencode-go")
         accounts = data.get("accounts", {})
@@ -59,8 +60,6 @@ def read_api_key() -> str | None:
             key = accounts[active].get("credential", {}).get("key")
             if key:
                 return key.strip()
-    except (OSError, ValueError):
-        pass
     return None
 
 
@@ -293,9 +292,7 @@ def apply_activity_profile(window: dict, stats: dict, now: datetime) -> None:
     window["projected_percent"] = round(min(projected, 999.0), 1)
     window["projection_source"] = "habitudes"
     saturation = saturation_days(window["percent"], now_local, reset, factors, rate)
-    window["saturation_in_days"] = (
-        round(saturation, 1) if saturation is not None else None
-    )
+    window["saturation_in_days"] = round(saturation, 1) if saturation is not None else None
     # La couleur suit la projection, pas le pourcentage brut.
     if window["percent"] >= 100:
         window["state"] = "exhausted"
@@ -334,15 +331,11 @@ def store_snapshots(db: sqlite3.Connection, windows: dict, now: datetime) -> Non
             "INSERT OR REPLACE INTO snapshots(ts, window, percent, resets_at) VALUES (?,?,?,?)",
             (ts, name, data["percent"], data["resets_at"]),
         )
-    db.execute(
-        "DELETE FROM snapshots WHERE ts < ?", (int(now.timestamp()) - 90 * 86400,)
-    )
+    db.execute("DELETE FROM snapshots WHERE ts < ?", (int(now.timestamp()) - 90 * 86400,))
     db.commit()
 
 
-def window_snapshots(
-    db: sqlite3.Connection, name: str, resets_at_iso: str, since: datetime
-):
+def window_snapshots(db: sqlite3.Connection, name: str, resets_at_iso: str, since: datetime):
     rows = db.execute(
         "SELECT ts, percent FROM snapshots WHERE window=? AND resets_at=? AND ts>=? ORDER BY ts",
         (name, resets_at_iso, int(since.timestamp())),
@@ -358,9 +351,7 @@ def daily_series(db: sqlite3.Connection, name: str, days: int = 14) -> list[dict
     compteur à zéro : la journée repart de sa propre consommation.
     """
     now = datetime.now().astimezone()
-    start = (now - timedelta(days=days - 1)).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
+    start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
     # Un jour de marge avant la fenêtre pour calculer la première variation.
     since = start - timedelta(days=1)
     rows = db.execute(
@@ -523,8 +514,7 @@ def local_stats(days: int = 28, month_days: int = 30, chart_days: int = 14) -> d
         if tokens > 50_000:
             active_days += 1
     weekday_avg = [
-        weekday_totals[i] / weekday_counts[i] if weekday_counts[i] else 0.0
-        for i in range(7)
+        weekday_totals[i] / weekday_counts[i] if weekday_counts[i] else 0.0 for i in range(7)
     ]
     overall_avg = sum(weekday_avg) / 7
     if overall_avg > 0:
@@ -576,9 +566,7 @@ def local_stats(days: int = 28, month_days: int = 30, chart_days: int = 14) -> d
     if total_projects > 0:
         result["projects"] = [
             {"name": name, "tokens": tokens, "share": round(tokens / total_projects, 3)}
-            for name, tokens in sorted(
-                by_project.items(), key=lambda kv: kv[1], reverse=True
-            )[:5]
+            for name, tokens in sorted(by_project.items(), key=lambda kv: kv[1], reverse=True)[:5]
         ]
 
     for hour, tokens in hourly:
@@ -671,9 +659,7 @@ def maybe_notify(payload: dict, previous: dict) -> bool:
     stats = payload.get("stats") or {}
     ratio = stats.get("today_budget_ratio")
     # Seul le budget du jour déclenche une alerte : le reste n'est que du bruit.
-    triggered = (ratio is not None and ratio > TODAY_WARN_RATIO) or monthly[
-        "percent"
-    ] >= 100
+    triggered = (ratio is not None and ratio > TODAY_WARN_RATIO) or monthly["percent"] >= 100
 
     today = datetime.now().strftime("%Y-%m-%d")
     if not triggered or previous.get("last_date") == today:
@@ -681,10 +667,7 @@ def maybe_notify(payload: dict, previous: dict) -> bool:
 
     if monthly["percent"] >= 100:
         title = "OpenCode Meter : quota épuisé"
-        body = (
-            f"Quota mensuel épuisé, reset dans "
-            f"{fmt_duration(monthly['reset_in_seconds'])}."
-        )
+        body = f"Quota mensuel épuisé, reset dans {fmt_duration(monthly['reset_in_seconds'])}."
     else:
         title = "OpenCode Meter : budget du jour dépassé"
         body = (
@@ -735,9 +718,7 @@ def send_notification(title: str, body: str) -> bool:
         if not shutil.which(command[0]):
             continue
         try:
-            result = subprocess.run(
-                command, capture_output=True, timeout=8, check=False
-            )
+            result = subprocess.run(command, capture_output=True, timeout=8, check=False)
         except (OSError, subprocess.SubprocessError):
             continue
         if result.returncode == 0:
@@ -778,9 +759,7 @@ def print_human(payload: dict) -> None:
     }
     reset = "\033[0m"
 
-    print(
-        f"{bold}OpenCode Go{reset} {dim}(maj {payload['generated_at'][11:16]} UTC){reset}"
-    )
+    print(f"{bold}OpenCode Go{reset} {dim}(maj {payload['generated_at'][11:16]} UTC){reset}")
     for name in WINDOWS:
         w = payload["windows"][name]
         color = colors.get(w["state"], "")
@@ -841,19 +820,15 @@ def main() -> int:
     parser.add_argument(
         "--notify", action="store_true", help="notifie en cas de dépassement (1×/jour)"
     )
-    parser.add_argument(
-        "--quiet", action="store_true", help="n'affiche rien en cas de succès"
-    )
+    parser.add_argument("--quiet", action="store_true", help="n'affiche rien en cas de succès")
     parser.add_argument("--timeout", type=float, default=15.0)
     args = parser.parse_args()
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     now = datetime.now(UTC)
     previous: dict = {}
-    try:
+    with contextlib.suppress(OSError, ValueError):
         previous = json.loads(USAGE_JSON.read_text())
-    except (OSError, ValueError):
-        pass
 
     payload: dict = {
         "generated_at": now.isoformat(),
@@ -869,9 +844,7 @@ def main() -> int:
 
     api_key = read_api_key()
     if not api_key:
-        payload["error"] = (
-            "clé API opencode-go introuvable (~/.local/share/opencode/account.json)"
-        )
+        payload["error"] = "clé API opencode-go introuvable (~/.local/share/opencode/account.json)"
     else:
         try:
             raw = fetch_usage(api_key, timeout=args.timeout)
