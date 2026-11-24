@@ -402,7 +402,8 @@ def quota_tokens_since(start_ms: int) -> int:
             row = con.execute(
                 f"""SELECT SUM({tokens_expr}) FROM session_message
                     WHERE type='assistant' AND time_created >= ?
-                      AND json_extract(data,'$.model.providerID') = 'opencode-go'""",
+                      AND json_extract(data,'$.model.providerID') = 'opencode-go'
+                      AND json_extract(data,'$.model.id') NOT LIKE '%-free'""",
                 (start_ms,),
             ).fetchone()
         finally:
@@ -461,6 +462,8 @@ def local_stats(days: int = 28, month_days: int = 30, chart_days: int = 14) -> d
                            SUM({tokens_expr})
                     FROM session_message
                     WHERE type='assistant' AND time_created >= ?
+                      AND json_extract(data,'$.model.providerID') = 'opencode-go'
+                      AND json_extract(data,'$.model.id') NOT LIKE '%-free'
                     GROUP BY d ORDER BY d""",
                 (since_ms,),
             ).fetchall()
@@ -470,6 +473,8 @@ def local_stats(days: int = 28, month_days: int = 30, chart_days: int = 14) -> d
                     FROM session_message
                     WHERE type='assistant' AND time_created >= ?
                       AND json_extract(data,'$.model.id') IS NOT NULL
+                      AND json_extract(data,'$.model.providerID') = 'opencode-go'
+                      AND json_extract(data,'$.model.id') NOT LIKE '%-free'
                     GROUP BY m ORDER BY t DESC LIMIT 5""",
                 (month_ms,),
             ).fetchall()
@@ -478,6 +483,8 @@ def local_stats(days: int = 28, month_days: int = 30, chart_days: int = 14) -> d
                            SUM({tokens_expr})
                     FROM session_message
                     WHERE type='assistant' AND time_created >= ?
+                      AND json_extract(data,'$.model.providerID') = 'opencode-go'
+                      AND json_extract(data,'$.model.id') NOT LIKE '%-free'
                     GROUP BY h""",
                 (month_ms,),
             ).fetchall()
@@ -486,6 +493,8 @@ def local_stats(days: int = 28, month_days: int = 30, chart_days: int = 14) -> d
                           SUM(tokens_input + tokens_output + tokens_reasoning) AS t
                    FROM session_v2
                    WHERE time_created >= ?
+                     AND json_extract(model,'$.providerID') = 'opencode-go'
+                     AND json_extract(model,'$.id') NOT LIKE '%-free'
                    GROUP BY directory""",
                 (month_ms,),
             ).fetchall()
