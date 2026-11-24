@@ -22,7 +22,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 USAGE_URL = "https://opencode.ai/zen/go/v1/usage"
@@ -82,16 +82,16 @@ def fetch_usage(api_key: str, timeout: float = 15.0) -> dict:
         payload = json.loads(resp.read().decode("utf-8"))
     usage = payload.get("usage")
     if not isinstance(usage, dict):
-        raise ValueError("réponse inattendue : champ 'usage' absent")
+        raise TypeError("réponse inattendue : champ 'usage' absent")
     out = {}
     for name in WINDOWS:
         raw = usage.get(name)
         if not isinstance(raw, dict):
-            raise ValueError(f"fenêtre '{name}' absente de la réponse")
+            raise TypeError(f"fenêtre '{name}' absente de la réponse")
         percent = raw.get("percent")
         resets_at = raw.get("resetsAt")
         if not isinstance(percent, (int, float)):
-            raise ValueError(f"fenêtre '{name}' : 'percent' invalide")
+            raise TypeError(f"fenêtre '{name}' : 'percent' invalide")
         out[name] = {
             "status": raw.get("status", "ok"),
             "percent": float(percent),
@@ -107,10 +107,10 @@ def fetch_usage(api_key: str, timeout: float = 15.0) -> dict:
 
 
 def parse_iso_utc(value: str) -> datetime:
-    dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    dt = datetime.fromisoformat(value)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def minus_one_month(dt: datetime) -> datetime:
@@ -453,7 +453,7 @@ def local_stats(days: int = 28, month_days: int = 30, chart_days: int = 14) -> d
     if not OPENCODE_DB.exists():
         return result
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     since_ms = int((now - timedelta(days=days)).timestamp() * 1000)
     month_ms = int((now - timedelta(days=month_days)).timestamp() * 1000)
     tokens_expr = (
@@ -640,7 +640,7 @@ def add_today_budget(payload: dict, stats: dict, now: datetime) -> None:
     overspend = max(used_today - budget_today, 0.0)
     # Le dépassement est déjà étalé sur tout le reste du mois : on l'annonce
     # par jour pour que le coût réel se voie, et il reste minime.
-    catchup_days = max(int(round(window.get("remaining_days") or 0)), 1)
+    catchup_days = max(round(window.get("remaining_days") or 0), 1)
     stats["today_quota_percent"] = round(used_today, 2)
     stats["today_budget_percent"] = round(budget_today, 2)
     stats["today_budget_ratio"] = round(ratio, 3)
@@ -848,7 +848,7 @@ def main() -> int:
     args = parser.parse_args()
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     previous: dict = {}
     try:
         previous = json.loads(USAGE_JSON.read_text())
@@ -900,9 +900,7 @@ def main() -> int:
     if args.notify:
         try:
             maybe_notify(payload, previous)
-        except (
-            Exception
-        ) as exc:  # une notification ne doit jamais faire échouer le relevé
+        except Exception as exc:  # noqa: BLE001  # une notification ne doit jamais faire échouer le relevé
             print(f"notification: {type(exc).__name__}: {exc}", file=sys.stderr)
 
     USAGE_JSON.write_text(json.dumps(payload, ensure_ascii=False, indent=1))
