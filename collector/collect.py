@@ -34,6 +34,7 @@ HOME = Path.home()
 CACHE_DIR = HOME / ".cache/opencode-meter"
 STATE_DB = CACHE_DIR / "history.sqlite"
 USAGE_JSON = CACHE_DIR / "usage.json"
+CONSOLE_COOKIES = CACHE_DIR / "console_cookies.json"
 OPENCODE_ACCOUNT = HOME / ".local/share/opencode/account.json"
 OPENCODE_DB = HOME / ".local/share/opencode/opencode.db"
 
@@ -61,6 +62,70 @@ def read_api_key() -> str | None:
             if key:
                 return key.strip()
     return None
+
+
+# --------------------------------------------------------------------------
+# Console (go/status) : source vérifiée, coûts exacts en microcents
+# --------------------------------------------------------------------------
+
+
+GO_STATUS_URL = "https://opencode.ai/console/api/go/status"
+WINDOW_TO_METER = {"rolling": "fiveHour", "weekly": "week", "monthly": "month"}
+
+
+def read_console_cookies() -> tuple[str | None, str | None]:
+    """Renvoie (cookie, org) depuis l'environnement ou le fichier local."""
+    cookie = os.environ.get("OPENCODE_CONSOLE_COOKIE")
+    org = os.environ.get("OPENCODE_CONSOLE_ORG")
+    if cookie and org:
+        return cookie.strip(), org.strip()
+    with contextlib.suppress(OSError, ValueError, KeyError, TypeError):
+        data = json.loads(CONSOLE_COOKIES.read_text())
+        cookie = data.get("cookie")
+        org = data.get("org")
+        if cookie and org:
+            return str(cookie).strip(), str(org).strip()
+    return None, None
+
+
+def fetch_go_status(cookie: str, org: str, timeout: float = 15.0) -> dict | None:
+    """Renvoie les meters Go (pourcentage = used/limit) ou None en cas d'échec."""
+    req = urllib.request.Request(
+        GO_STATUS_URL,
+        headers={
+            "Cookie": cookie,
+            "x-org-id": org,
+            "Accept": "application/json",
+            "User-Agent": "opencode-meter/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError):
+        return None
+    meters = payload.get("access", {}).get("meters", {})
+    out = {}
+    for window, meter_name in WINDOW_TO_METER.items():
+        m = meters.get(meter_name)
+        if not isinstance(m, dict):
+            continue
+        try:
+            used = int(m["usedMicroCents"])
+            limit = int(m["limitMicroCents"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        if limit <= 0:
+            continue
+        out[window] = {
+            "percent": used / limit * 100.0,
+            "used_microcents": used,
+            "limit_microcents": limit,
+            "resets_at": m.get("resetsAt"),
+            "starts_at": m.get("startsAt"),
+            "use_balance": bool(payload.get("useBalance", False)),
+        }
+    return out if out else None
 
 
 # --------------------------------------------------------------------------
@@ -823,6 +888,33 @@ def print_human(payload: dict) -> None:
         print(f"  {dim}  {p['name']:<26} {p['share'] * 100:4.0f} %  projet{reset}")
 
 
+def setup_cookies() -> int:
+    """Stocke interactivement les cookies de session Console."""
+    print("Récupération des cookies Console (DevTools → Network → Headers).")
+    cookie = input("Colle le header Cookie (ou __Host-console_session=...) : ").strip()
+    org = input("Colle la valeur du header x-org-id : ").strip()
+    if not cookie or not org:
+        print("Valeurs manquantes.", file=sys.stderr)
+        return 1
+    if "=" not in cookie:
+        cookie = f"__Host-console_session={cookie}"
+    CONSOLE_COOKIES.parent.mkdir(parents=True, exist_ok=True)
+    CONSOLE_COOKIES.write_text(json.dumps({"cookie": cookie, "org": org}, ensure_ascii=False))
+    try:
+        CONSOLE_COOKIES.chmod(0o600)
+    except OSError:
+        pass
+    # Vérification
+    status = fetch_go_status(cookie, org)
+    if status:
+        print("OK : go/status accessible.")
+        for w, m in status.items():
+            print(f"  {w}: {m['percent']:.1f} %")
+    else:
+        print("Attention : go/status inaccessible avec ces valeurs.", file=sys.stderr)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Suivi du quota OpenCode Go")
     parser.add_argument("--json", action="store_true", help="affiche le JSON complet")
@@ -830,8 +922,15 @@ def main() -> int:
         "--notify", action="store_true", help="notifie en cas de dépassement (1×/jour)"
     )
     parser.add_argument("--quiet", action="store_true", help="n'affiche rien en cas de succès")
+    parser.add_argument(
+        "--setup-cookies", action="store_true",
+        help="stocke interactivement les cookies de session Console (go/status)",
+    )
     parser.add_argument("--timeout", type=float, default=15.0)
     args = parser.parse_args()
+
+    if args.setup_cookies:
+        return setup_cookies()
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     now = datetime.now(UTC)
@@ -857,6 +956,14 @@ def main() -> int:
     else:
         try:
             raw = fetch_usage(api_key, timeout=args.timeout)
+            # Source vérifiée : go/status (coûts exacts) prime sur l'API usage.
+            cookie, org = read_console_cookies()
+            go_status = fetch_go_status(cookie, org, timeout=args.timeout) if cookie and org else None
+            if go_status:
+                for name in WINDOWS:
+                    if name in go_status and "percent" in go_status[name]:
+                        raw[name]["percent"] = round(go_status[name]["percent"], 2)
+                        payload.setdefault("go_status", {})[name] = go_status[name]
             db = open_state_db()
             store_snapshots(db, raw, now)
             for name in WINDOWS:
