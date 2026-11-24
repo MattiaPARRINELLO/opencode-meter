@@ -6,7 +6,7 @@
             }
         ],
         "Category": "System Information",
-        "Description": "Suivi du quota OpenCode Go avec projection du rythme mensuel",
+        "Description": "Track your OpenCode Go quota and project your daily budget",
         "Icon": "office-chart-bar",
         "Id": "io.github.mattia.opencodemeter",
         "License": "MIT",

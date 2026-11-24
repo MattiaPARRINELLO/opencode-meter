@@ -1,5 +1,11 @@
 # OpenCode Meter
 
+> **English.** KDE Plasma 6 widget that tracks your **OpenCode Go** quota and helps
+> you stay on budget until the reset. The panel pill shows today's budget usage;
+> click for the monthly quota, end-of-month projection, per-model and per-project
+> breakdown and weekly profile. Install commands below are shell-based and
+> language-independent.
+
 Widget KDE Plasma 6 pour suivre ton quota **OpenCode Go** et tenir jusqu'au reset.
 
 La pilule du panneau affiche la part du **budget du jour** déjà consommée. Un clic
@@ -38,6 +44,15 @@ et par projet, profil hebdomadaire.
 - `systemd --user`, `kpackagetool6`, `gdbus` (ou `kdialog`) pour les notifications
 - OpenCode configuré avec un compte `opencode-go`
   (clé dans `~/.local/share/opencode/account.json`)
+
+## Notes
+
+- **Dépendance fragile.** Le widget lit l'endpoint non documenté
+  `opencode.ai/zen/go/v1/usage` et le schéma de `account.json`. Si OpenCode
+  change l'un ou l'autre, le widget casse. Les contributions pour adapter sont
+  bienvenues.
+- **Données.** Tout reste en local (`~/.cache/opencode-meter`). Aucune donnée
+  n'est envoyée ailleurs que vers l'API OpenCode officielle.
 
 ## Installation
 
